@@ -1,0 +1,10 @@
+openpyxl
+xlrd
+pyxlsb
+pypdf
+python-docx
+python-pptx
+pypdfium2
+pytesseract
+Pillow
+pywin32; sys_platform == "win32"
