@@ -121,7 +121,10 @@ meta(key, value)
   (unsupported/unreadable). `partial`/`too_large`/`empty` are never served from
   the index: those files are re-read, so the index can never claim "no content".
 * Differential update keys: path, size, mtime_ns, extractor version, OCR version
-  and OCR language. A change in any of them re-extracts that file only.
+  and OCR language. Extraction-affecting settings (Excel formulas, archive
+  search, OCR mode/languages) are folded into the stored extractor version, so
+  changing them re-extracts rather than serving stale rows. A change in any key
+  re-extracts that file only.
 * Capacity (`index_max_bytes`) stops *new* indexing when exceeded; existing rows
   are never deleted to make room.
 * `PRAGMA quick_check` runs on open; on damage the index raises

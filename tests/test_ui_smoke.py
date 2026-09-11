@@ -183,3 +183,54 @@ class TestExports:
         text = target.read_text(encoding="utf-8-sig")
         assert "Sheet1!A1" in text
         assert "AAA" in text
+
+
+class TestAcceptance:
+    def test_corrupt_index_falls_back_to_direct_search(self, tk_root, tmp_path, isolated_paths) -> None:
+        """A damaged index database must not stop FileScope from starting."""
+        index_file = Path(paths.index_path())
+        index_file.parent.mkdir(parents=True, exist_ok=True)
+        index_file.write_bytes(b"definitely not sqlite" * 100)
+        corpus = build_corpus(tmp_path / "corrupt-corpus", with_ocr_image=False)
+
+        settings = Settings()
+        settings.index_enabled = True
+        settings.index_max_bytes = 64 * 1024 * 1024
+        window = MainWindow(tk_root, settings=settings)
+        assert window.database is None
+        assert settings.index_disabled_reason
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        assert window.model.all_rows, "direct search should still work"
+
+    def test_large_result_set_is_virtualised(self, tk_root, tmp_path, isolated_paths) -> None:
+        root = tmp_path / "many"
+        for index in range(3000):
+            folder = root / f"d{index // 500}"
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / f"f{index:05d}.txt").write_text("AAA 評価\n", encoding="utf-8")
+
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 1.5)
+        assert len(window.model.visible) == 3000
+        # Only a window of rows may exist in the widget at any time.
+        assert len(window.tree.get_children()) <= results_module.WINDOW_ROWS
