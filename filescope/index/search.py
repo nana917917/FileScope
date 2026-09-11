@@ -152,12 +152,16 @@ class IndexSearcher:
         state = self.matcher.make_state(entry, flags=flags)
         # Stream the stored chunks so an early decision stops the read, exactly
         # like the direct path (JIT phase 1).
+        total_chunks = 0
         for chunk in self.db.iter_chunks(file_id):
+            total_chunks += 1
             outcome = state.feed(chunk)
             if outcome is Outcome.ACCEPT:
+                state.hit_count_exact = False
                 return outcome, state
             if outcome is Outcome.REJECT:
                 return outcome, state
+        _ = total_chunks
         return state.finish(), state
 
 

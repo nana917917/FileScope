@@ -70,6 +70,7 @@ class MainWindow(ttk.Frame):
         self._refine_var = tk.StringVar(value="")
         self._issue_rows = 0
         self._window_start = 0
+        self._full_scan_queue: queue.Queue = queue.Queue()
 
         self.pack(fill="both", expand=True)
         self._build_menu()
@@ -368,6 +369,9 @@ class MainWindow(ttk.Frame):
                 elif isinstance(event, events.Finished):
                     self._on_finished(event.summary)
                     needs_render = True
+        # Phase-2 updates only touch their own rows, so the selection and the
+        # scroll position are preserved.
+        self._apply_full_scan_updates()
         if needs_render:
             self._render_results()
         self.after(DRAIN_MS, self._drain_events)
@@ -511,7 +515,83 @@ class MainWindow(ttk.Frame):
             self.preview.clear()
             return
         config = self.state.to_config(self.settings)
-        self.preview.show(result, config, search_text=self.state.query)
+        self.preview.show(
+            result, config, search_text=self.state.query, on_chunks=self._on_preview_chunks
+        )
+
+    def _on_preview_chunks(self, _content, chunks) -> None:
+        """Worker-thread callback: compute the exact hit set for one file."""
+        result = self.preview._current
+        if result is None or result.hit_count_exact:
+            return
+        matcher = self._current_matcher()
+        if matcher is None:
+            return
+        from ..core.matcher import Outcome
+        from ..core.models import FileEntry
+
+        entry = FileEntry(
+            path=result.path,
+            size=result.size,
+            mtime_ns=result.mtime_ns,
+            extension=os.path.splitext(result.path)[1].lower(),
+            source_type=result.source_type,
+            cloud_state=result.cloud_state,
+        )
+        state = matcher.make_state(entry, name=result.name, directory=result.directory)
+        for chunk in chunks:
+            state.feed(chunk)
+        if state.finish() is Outcome.ACCEPT:
+            self._full_scan_queue.put(
+                (
+                    result.path,
+                    state.hit_count,
+                    state.evidence(),
+                    state.matched_terms(),
+                    state.displays(),
+                )
+            )
+
+    def _current_matcher(self):
+        from ..core.matcher import MatchOptions, QueryMatcher
+        from ..core.query import parse_query
+
+        try:
+            node = parse_query(self.state.combined_query(), legacy_operator=self.state.legacy_operator)
+        except Exception:
+            return None
+        if node is None:
+            return None
+        return QueryMatcher(
+            node,
+            MatchOptions(
+                case_sensitive=self.state.case_sensitive,
+                ignore_width=self.state.ignore_width,
+                part_number_mode=self.state.part_number_mode,
+                include_path_names=self.state.search_path_names,
+            ),
+        )
+
+    def _apply_full_scan_updates(self) -> bool:
+        """UI-thread application of the phase-2 results."""
+        updated = False
+        while True:
+            try:
+                path, hits, evidence, terms, displays = self._full_scan_queue.get_nowait()
+            except queue.Empty:
+                break
+            for index, row in enumerate(self.model.visible):
+                if row.result.path != path:
+                    continue
+                row.result.hit_count = hits
+                row.result.hit_count_exact = True
+                row.result.evidence = list(evidence)
+                row.result.matched_terms = tuple(terms)
+                row.result.displays = tuple(displays)
+                self._refresh_row(index)
+                updated = True
+                break
+        return updated
 
     # ------------------------------------------------------------- facets
     def _rebuild_facets(self) -> None:

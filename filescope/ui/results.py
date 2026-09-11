@@ -126,7 +126,7 @@ def values_for(row: Row, ocr_available: bool = True) -> tuple[str, ...]:
         "✓" if row.confirmed else "",
         result.name,
         " / ".join(result.displays) if result.displays else "",
-        str(result.hit_count),
+        f"{result.hit_count}+" if not result.hit_count_exact else str(result.hit_count),
         kind,
         format_time(result.mtime_ns),
         format_size(result.size),

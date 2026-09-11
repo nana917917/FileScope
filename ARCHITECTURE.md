@@ -90,6 +90,9 @@ search bar before any file is touched.
 * Evidence is capped per term (default 3) so memory does not grow with hits.
 * `score()` is deterministic: coverage, phrase bonus, filename/path bonus, hit
   count. Nothing is AI-judged.
+* Phase 2 of JIT: when the user selects a row, the preview extracts that file in
+  full and the UI replaces the lower-bound hit count (`8+`) with the exact count
+  and the complete evidence list for that file only.
 
 ## 5. Index (`filescope/index/`)
 

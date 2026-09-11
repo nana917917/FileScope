@@ -480,6 +480,8 @@ class SearchSession:
         warnings: list[Issue] = []
         truncated = False
         stopped_early = False
+        extraction_ran = False
+        partial_hits = False
 
         def emit(chunk: Chunk) -> None:
             outcome = state.feed(chunk)
@@ -506,11 +508,13 @@ class SearchSession:
             while True:
                 attempts += 1
                 before = tempfiles.stat_signature(entry.path)
+                extraction_ran = True
                 try:
                     chunks_before = sink.count
                     result = self._extract(entry, options, sink)
                 except StopExtraction:
                     stopped_early = True
+                    partial_hits = True
                     break
                 ocr_pages += getattr(result, "ocr_pages", 0)
                 warnings.extend(getattr(result, "warnings", []))
@@ -558,9 +562,13 @@ class SearchSession:
                 )
 
         outcome = state.finish()
+        if partial_hits:
+            # JIT stopped before end of file: the hit count is a lower bound and
+            # more evidence can be produced on demand (phase 2).
+            state.hit_count_exact = False
         with self._lock:
             self.coverage.scanned += 1
-            if not stopped_early:
+            if extraction_ran:
                 self.coverage.read += 1
                 self.coverage.ocr_pages += ocr_pages
         if buffered and self.database is not None:
@@ -637,6 +645,7 @@ class SearchSession:
             matched_terms=state.matched_terms(),
             displays=state.displays(),
             hit_count=state.hit_count,
+            hit_count_exact=state.hit_count_exact,
             evidence=state.evidence(),
             ocr_pages=ocr_pages,
             from_index=from_index,

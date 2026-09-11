@@ -70,10 +70,11 @@ class PreviewPane(ttk.Frame):
         self.after(120, self._poll_pending)
 
     # ------------------------------------------------------------- public
-    def show(self, result: FileResult, config, *, search_text: str = "") -> None:
+    def show(self, result: FileResult, config, *, search_text: str = "", on_chunks=None) -> None:
         self._current = result
         self._config = config
         self._search_text = search_text
+        self._on_chunks = on_chunks
         self._token += 1
         token = self._token
         key = (result.path, result.mtime_ns)
@@ -95,7 +96,7 @@ class PreviewPane(ttk.Frame):
         options = self._extract_options(config)
         threading.Thread(
             target=self._load,
-            args=(token, key, entry, options),
+            args=(token, key, entry, options, on_chunks),
             name="filescope-preview",
             daemon=True,
         ).start()
@@ -122,8 +123,16 @@ class PreviewPane(ttk.Frame):
             include_archives=config.include_archives,
         )
 
-    def _load(self, token: int, key: tuple, entry: FileEntry, options: ExtractOptions) -> None:
-        content = self._build(entry, options)
+    def _load(self, token: int, key: tuple, entry: FileEntry, options: ExtractOptions, on_chunks) -> None:
+        chunks: list = []
+        content = self._build(entry, options, chunks)
+        if on_chunks is not None and chunks:
+            # Phase 2 of JIT: the file was read in full for the preview, so the
+            # caller can now replace the early-accept hit count with the exact one.
+            try:
+                on_chunks(content, chunks)
+            except Exception as exc:  # never let a callback break the preview
+                log.debug("preview callback failed: %s", exc)
         self._pending.put((token, key, content))
 
     def _poll_pending(self) -> None:
@@ -144,8 +153,7 @@ class PreviewPane(ttk.Frame):
         if self._current is not None:
             self._render(content, self._current)
 
-    def _build(self, entry: FileEntry, options: ExtractOptions) -> PreviewContent:
-        chunks = []
+    def _build(self, entry: FileEntry, options: ExtractOptions, chunks: list) -> PreviewContent:
         try:
             extract(entry, entry.path, Sink(chunks.append), options)
         except Exception as exc:

@@ -141,6 +141,8 @@ class FileResult:
     matched_terms: tuple[str, ...] = ()
     displays: tuple[str, ...] = ()
     hit_count: int = 0
+    #: False when JIT stopped reading early, so the count is a lower bound.
+    hit_count_exact: bool = True
     evidence: list[Evidence] = field(default_factory=list)
     ocr_pages: int = 0
     from_index: bool = False

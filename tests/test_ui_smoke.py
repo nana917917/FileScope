@@ -18,6 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 tk = pytest.importorskip("tkinter")
 
+# Tk variables destroyed after the test root can raise during GC on Windows;
+# that is a test-harness artefact, not an application error.
+pytestmark = pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+
 from filescope import paths  # noqa: E402
 from filescope.config import Settings  # noqa: E402
 from filescope.ui import results as results_module  # noqa: E402
