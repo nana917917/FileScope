@@ -20,7 +20,6 @@ from filescope.core.models import ChunkKind, FileEntry, SourceType
 from filescope.extractors import extract
 from filescope.extractors import pdf as pdf_module
 from filescope.extractors.base import ExtractOptions, Sink
-from filescope.extractors.pdf import PdfExtractor
 from filescope.ocr_cache import OcrCache
 from filescope.platform import tesseract as tesseract_module
 
