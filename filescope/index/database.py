@@ -391,21 +391,35 @@ class IndexDatabase:
         return StoredFile(id=file_id, path=display_path, status=status, chunks=chunks)
 
     def load_chunks(self, file_id: int) -> list[Chunk]:
-        from ..core.models import ChunkKind
 
         connection = self._connection_or_raise()
         rows = connection.execute(
             "SELECT kind, location, text, chunk_index FROM chunks WHERE file_id = ? ORDER BY chunk_index",
             (file_id,),
         ).fetchall()
-        chunks: list[Chunk] = []
-        for kind, location, text, index in rows:
-            try:
-                chunk_kind = ChunkKind(str(kind))
-            except ValueError:
-                chunk_kind = ChunkKind.LINE
-            chunks.append(Chunk(text=str(text), kind=chunk_kind, location=str(location), sequence=int(index)))
-        return chunks
+        return [_to_chunk(kind, location, text, index) for kind, location, text, index in rows]
+
+    def file_row(self, path: str) -> tuple[int, str] | None:
+        """Return ``(file_id, status)`` for a stored path."""
+        connection = self._connection_or_raise()
+        row = connection.execute(
+            "SELECT id, status FROM files WHERE path_key = ?", (normalized_key(path),)
+        ).fetchone()
+        return (int(row[0]), str(row[1])) if row else None
+
+    def iter_chunks(self, file_id: int):
+        """Stream a file's chunks so indexed search can stop as soon as it can."""
+        connection = self._connection_or_raise()
+        cursor = connection.execute(
+            "SELECT kind, location, text, chunk_index FROM chunks WHERE file_id = ? ORDER BY chunk_index",
+            (file_id,),
+        )
+        while True:
+            rows = cursor.fetchmany(64)
+            if not rows:
+                return
+            for kind, location, text, index in rows:
+                yield _to_chunk(kind, location, text, index)
 
     def indexed_paths_under(self, root: str) -> set[str]:
         connection = self._connection_or_raise()
@@ -418,6 +432,16 @@ class IndexDatabase:
 
     def known_count(self) -> int:
         return int(self._connection_or_raise().execute("SELECT COUNT(*) FROM files").fetchone()[0])
+
+
+def _to_chunk(kind, location, text, index) -> Chunk:
+    from ..core.models import ChunkKind
+
+    try:
+        chunk_kind = ChunkKind(str(kind))
+    except ValueError:
+        chunk_kind = ChunkKind.LINE
+    return Chunk(text=str(text), kind=chunk_kind, location=str(location), sequence=int(index))
 
 
 def _norm(text: str) -> str:

@@ -141,11 +141,14 @@ class IndexSearcher:
     def evaluate(
         self, path: str, entry: FileEntry, flags: RuntimeFlags | None = None
     ) -> tuple[Outcome, object] | None:
-        stored = self.db.load_file(path)
-        if stored is None or stored.status in ("skipped", "too_large"):
+        row = self.db.file_row(path)
+        if row is None or row[1] in ("skipped", "too_large", "empty"):
             return None
+        file_id = row[0]
         state = self.matcher.make_state(entry, flags=flags)
-        for chunk in stored.chunks:
+        # Stream the stored chunks so an early decision stops the read, exactly
+        # like the direct path (JIT phase 1).
+        for chunk in self.db.iter_chunks(file_id):
             outcome = state.feed(chunk)
             if outcome is Outcome.ACCEPT:
                 return outcome, state

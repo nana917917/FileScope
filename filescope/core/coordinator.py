@@ -140,6 +140,7 @@ class SearchSession:
         self._general_queue: queue.Queue = queue.Queue(maxsize=QUEUE_SIZE)
         self._pdf_queue: queue.Queue = queue.Queue(maxsize=256)
         self._index_candidates: set[str] = set()
+        self._searcher: IndexSearcher | None = None
         self._session_started = 0.0
         self._last_progress = 0.0
         self._finished = threading.Event()
@@ -432,9 +433,10 @@ class SearchSession:
         """Return True when the index answered this file (no file IO)."""
         if self.database is None or self.matcher is None:
             return False
+        if self._searcher is None:
+            self._searcher = IndexSearcher(self.database, self.matcher)
         try:
-            searcher = IndexSearcher(self.database, self.matcher)
-            evaluated = searcher.evaluate(entry.path, entry, self._flags(entry))
+            evaluated = self._searcher.evaluate(entry.path, entry, self._flags(entry))
         except Exception as exc:
             log.warning("index evaluation failed for %s: %s", entry.path, exc)
             return False
