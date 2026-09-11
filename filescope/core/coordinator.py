@@ -25,7 +25,7 @@ from ..config import ResourceLimits
 from ..errors import Issue, QuerySyntaxError, Severity, StopExtraction
 from ..extractors import extract, extractor_for
 from ..extractors.base import ExtractOptions, Sink
-from ..index.database import IndexDatabase
+from ..index.database import IndexDatabase, extraction_fingerprint
 from ..index.search import IndexSearcher
 from ..logging_setup import get_logger
 from ..ocr_cache import OcrCache
@@ -165,9 +165,19 @@ class SearchSession:
                 case_sensitive=self.config.case_sensitive,
                 ignore_width=self.config.ignore_width,
                 part_number_mode=self.config.part_number_mode,
+                include_path_names=self.config.search_path_names,
             ),
         )
         self._session_started = time.time()
+        if self.database is not None:
+            # Anything that changes extracted text must invalidate stored rows,
+            # otherwise an indexed search could disagree with a direct one.
+            self.database.extractor_version = extraction_fingerprint(
+                search_formula=self.config.search_formula,
+                include_archives=self.config.include_archives,
+                ocr_mode=self.config.pdf_ocr_mode,
+                ocr_languages=self.config.ocr_languages,
+            )
         self.events.put(events.Started(query=self.config.query, mode=self.config.mode, roots=self.config.roots))
         self._prepare_index_candidates()
 
@@ -257,6 +267,10 @@ class SearchSession:
                         discovered = self.coverage.discovered
                     if len(keys) < MAX_INDEX_TRACKED_KEYS:
                         keys.add(normalized_key(item.path))
+                    else:
+                        # Too many files to prove which index rows are stale;
+                        # deleting them would be worse than leaving them.
+                        complete = False
                     if discovered % 500 == 0:
                         self.events.put(events.Discovered(count=discovered, root=root))
                     self._dispatch(item)
@@ -476,13 +490,15 @@ class SearchSession:
                 raise StopExtraction("decided")
 
         sink = Sink(emit, self.cancel_event)
-        if self.config.search_path_names:
-            try:
-                self._feed_name_and_path(sink, entry)
-                if buffered is None and state.finish() is Outcome.ACCEPT:
-                    stopped_early = True
-            except StopExtraction:
+        # Name/path chunks are always produced; the matcher decides whether they
+        # count. That keeps index and direct results identical when the option
+        # is toggled (the index always stores these two cheap chunks).
+        try:
+            self._feed_name_and_path(sink, entry)
+            if buffered is None and state.finish() is Outcome.ACCEPT:
                 stopped_early = True
+        except StopExtraction:
+            stopped_early = True
 
         if not stopped_early:
             options = self._extract_options()

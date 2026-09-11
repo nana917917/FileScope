@@ -476,11 +476,6 @@ class MainWindow(ttk.Frame):
         if total <= results_module.WINDOW_ROWS:
             return
         delta = -3 if event.delta > 0 else 3
-        selection = self.tree.selection()
-        if selection:
-            index = int(selection[0])
-            if 0 <= index - self._window_start + delta < self.tree.yview()[1] * results_module.WINDOW_ROWS:
-                pass
         self._fill_window(self._window_start + delta)
 
     def _refresh_row(self, index: int) -> None:

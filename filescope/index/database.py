@@ -455,6 +455,21 @@ def _root_prefix(root: str) -> str:
     return normalized_key(root).rstrip("\\/") + os.sep
 
 
+def extraction_fingerprint(
+    *, search_formula: bool, include_archives: bool, ocr_mode: str, ocr_languages: str
+) -> str:
+    """Extraction settings that change stored text, folded into the version.
+
+    Anything that changes extracted content must invalidate index rows, or an
+    indexed search could disagree with a direct one (for example formulas
+    excluded during a first pass and requested later).
+    """
+    return (
+        f"{EXTRACTOR_VERSION}|f{int(bool(search_formula))}"
+        f"|a{int(bool(include_archives))}|o{ocr_mode}|{ocr_languages}"
+    )
+
+
 def _part(text: str) -> str:
     from ..core.normalize import canonical_part
 

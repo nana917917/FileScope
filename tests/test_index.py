@@ -208,6 +208,32 @@ class TestDirectIndexEquivalence:
 
 
 class TestIndexUsage:
+    def test_extraction_setting_change_reindexes(self, corpus, tmp_path) -> None:
+        """Formulas/archives/OCR settings change stored text, so rows must refresh."""
+        db = IndexDatabase(str(tmp_path / "settings.sqlite3"))
+        try:
+            run_search(corpus.root, "AAA", database=db, mode="standard", search_formula=True)
+            indexed = run_search(
+                corpus.root, "=SUM", database=db, mode="standard", search_formula=False
+            )
+            direct = run_search(corpus.root, "=SUM", mode="full", search_formula=False)
+        finally:
+            db.close()
+        assert sorted(r.path for r in indexed.results) == sorted(r.path for r in direct.results)
+
+    def test_path_name_option_is_consistent(self, corpus, tmp_path) -> None:
+        """Turning file-name search off must behave the same through the index."""
+        db = IndexDatabase(str(tmp_path / "names.sqlite3"))
+        try:
+            run_search(corpus.root, "AAA", database=db, mode="standard", search_path_names=True)
+            indexed = run_search(
+                corpus.root, "name:report", database=db, mode="standard", search_path_names=False
+            )
+            direct = run_search(corpus.root, "name:report", mode="full", search_path_names=False)
+        finally:
+            db.close()
+        assert sorted(r.path for r in indexed.results) == sorted(r.path for r in direct.results)
+
     def test_second_search_reads_no_files(self, corpus, tmp_path) -> None:
         db = IndexDatabase(str(tmp_path / "reuse.sqlite3"))
         try:

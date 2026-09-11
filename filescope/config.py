@@ -136,8 +136,7 @@ class Settings:
         raw: dict[str, Any] = {}
         if os.path.isfile(path):
             try:
-                with open(path, encoding="utf-8") as handle:
-                    loaded = json.load(handle)
+                loaded = _read_json(path)
                 if isinstance(loaded, dict):
                     raw = loaded
                 else:
@@ -254,12 +253,23 @@ def _quarantine(path: str) -> None:
         pass
 
 
+def _read_json(path: str) -> Any:
+    """Read JSON written by this or an older FileScope (UTF-8, then cp932)."""
+    with open(path, "rb") as handle:
+        data = handle.read()
+    for encoding in ("utf-8-sig", "cp932"):
+        try:
+            return json.loads(data.decode(encoding))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    raise ValueError("settings file is not readable JSON")
+
+
 def _load_legacy() -> dict[str, Any]:
     """Best-effort migration from the v4 settings file."""
     path = paths.legacy_settings_path()
     try:
-        with open(path, encoding="utf-8") as handle:
-            old = json.load(handle)
+        old = _read_json(path)
     except (OSError, ValueError) as exc:
         log.warning("legacy settings unreadable: %s", exc)
         return {}

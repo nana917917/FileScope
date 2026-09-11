@@ -42,6 +42,10 @@ class MatchOptions:
     ignore_width: bool = True
     part_number_mode: bool = False
     max_evidence_per_term: int = 3
+    #: When False, the file name / folder chunks are ignored so that a search
+    #: with the option off behaves identically through the index (where those
+    #: chunks are always stored).
+    include_path_names: bool = True
 
 
 @dataclass
@@ -272,6 +276,8 @@ class FileMatchState:
         options = self.matcher.options
         text = chunk.text
         if not text:
+            return Outcome.PENDING
+        if chunk.kind in (ChunkKind.NAME, ChunkKind.PATH) and not options.include_path_names:
             return Outcome.PENDING
         self.units_scanned += 1
         hay_norm = normalize.normalize_text(
