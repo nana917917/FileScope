@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "filescope"
+version = "5.0.0"
+description = "Offline full-text search for Windows document folders (Excel, PDF, Word, PowerPoint, text, OCR)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "FileScope" }]
+keywords = ["search", "full-text", "excel", "pdf", "ocr", "offline", "windows"]
+dependencies = [
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    "pyxlsb>=1.0",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "python-pptx>=0.6.23",
+    "Pillow>=10.0",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# OCR is optional: FileScope starts and searches without it (spec section 29).
+ocr = ["pytesseract>=0.3.10", "pypdfium2>=4.20"]
+dev = ["pytest>=8.0", "ruff>=0.5", "xlwt>=1.3"]
+
+[project.scripts]
+filescope = "filescope.app:main"
+
+[project.gui-scripts]
+filescope-gui = "filescope.app:main"
+
+[tool.setuptools]
+packages = ["filescope", "filescope.core", "filescope.extractors", "filescope.index", "filescope.platform", "filescope.ui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:filescope.*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 110
+exclude = [".venv", "baseline"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PT", "RUF"]
+ignore = [
+    "E501",    # long lines are allowed when they stay readable
+    "RUF001",  # full-width punctuation appears in Japanese UI strings
+    "RUF002",
+    "RUF003",
+    "SIM108",  # ternaries are not always clearer
+    "UP042",   # str-based enums keep JSON/UI serialisation simple
+    "PT018",   # composite assertions read better in the tests here
+    "PT006",
+]
