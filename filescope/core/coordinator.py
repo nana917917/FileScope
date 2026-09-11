@@ -507,6 +507,7 @@ class SearchSession:
                 attempts += 1
                 before = tempfiles.stat_signature(entry.path)
                 try:
+                    chunks_before = sink.count
                     result = self._extract(entry, options, sink)
                 except StopExtraction:
                     stopped_early = True
@@ -514,7 +515,7 @@ class SearchSession:
                 ocr_pages += getattr(result, "ocr_pages", 0)
                 warnings.extend(getattr(result, "warnings", []))
                 truncated = bool(getattr(result, "truncated", False))
-                if getattr(result, "skipped", False) and not sink.count:
+                if getattr(result, "skipped", False) and sink.count == chunks_before:
                     # Nothing usable (unsupported/undecodable): report and stop.
                     if result.reason:
                         warnings.append(

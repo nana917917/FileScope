@@ -258,3 +258,34 @@ class TestIndexUsage:
         finally:
             victim.write_bytes(backup)
             db.close()
+
+    def test_unreadable_office_file_is_marked_empty_not_ok(self, tmp_path) -> None:
+        """A file that cannot be parsed must not be cached as if it had no matches."""
+        root = tmp_path / "broken"
+        root.mkdir()
+        broken = root / "broken.docx"
+        broken.write_bytes(b"not really a docx")
+        db = IndexDatabase(str(tmp_path / "empty.sqlite3"))
+        try:
+            summary = run_search(root, "AAA", database=db, mode="standard")
+            stored = db.load_file(str(broken))
+            assert stored is not None and stored.status == "empty"
+            assert db.needs_update(entry(broken, ".docx")) is True
+            assert any("docx" in issue.path or issue.path.endswith("broken.docx") for issue in summary.issues)
+        finally:
+            db.close()
+
+    def test_phrase_and_punctuation_terms_match_through_index(self, tmp_path) -> None:
+        root = tmp_path / "phrase"
+        root.mkdir()
+        (root / "a.txt").write_text("耐久 試験を実施\nABC-123 の記録\n", encoding="utf-8")
+        (root / "b.txt").write_text("耐久のみ\n", encoding="utf-8")
+        db = IndexDatabase(str(tmp_path / "phrase.sqlite3"))
+        try:
+            run_search(root, "耐久", database=db, mode="standard")
+            for query in ('"耐久 試験"', "ABC-123"):
+                indexed = run_search(root, query, database=db, mode="standard")
+                direct = run_search(root, query, mode="full")
+                assert sorted(r.path for r in indexed.results) == sorted(r.path for r in direct.results), query
+        finally:
+            db.close()

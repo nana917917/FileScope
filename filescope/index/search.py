@@ -78,9 +78,13 @@ class IndexSearcher:
                 "SELECT DISTINCT file_id FROM chunks WHERE part_text LIKE ? ESCAPE '\\'", (like,)
             ).fetchall()
             return {int(row[0]) for row in rows}
-        if pattern.part and len(pattern.part) >= SHORT_TERM_LENGTH:
+        # Phrases and punctuation-only terms are not safe to hand to the FTS
+        # tokenizer (a quoted FTS string is parsed as a phrase query), so they
+        # always use the text scan. Missing a candidate would silently lose hits.
+        fts_safe = not term.phrase and any(ch.isalnum() for ch in (pattern.norm or pattern.part))
+        if fts_safe and pattern.part and len(pattern.part) >= SHORT_TERM_LENGTH:
             ids |= self._fts_ids(connection, "chunks_fts_part", "part_text", pattern.part)
-        if pattern.norm and len(pattern.norm) >= SHORT_TERM_LENGTH:
+        if fts_safe and pattern.norm and len(pattern.norm) >= SHORT_TERM_LENGTH:
             ids |= self._fts_ids(connection, "chunks_fts", "norm_text", pattern.norm)
         if ids:
             return ids
