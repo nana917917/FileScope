@@ -36,6 +36,11 @@ class Outcome(str, Enum):
     REJECT = "reject"
 
 
+#: More than this many ``*`` in a part number would make the wildcard regex a
+#: backtracking hazard on long cell text; real part numbers never need it.
+MAX_WILDCARDS = 6
+
+
 @dataclass(frozen=True)
 class MatchOptions:
     case_sensitive: bool = False
@@ -97,8 +102,10 @@ def compile_pattern(text: str, phrase: bool, options: MatchOptions) -> TermPatte
     wildcard = None
     if options.part_number_mode:
         part = normalize.canonical_part(text, case_sensitive=options.case_sensitive, keep_star=True)
-        if "*" in part:
+        if "*" in part and part.count("*") <= MAX_WILDCARDS:
             wildcard = normalize.part_wildcard_regex(part)
+        elif "*" in part:
+            part = part.replace("*", "")
     return TermPattern(text=text, phrase=phrase, norm=norm, part=part, wildcard=wildcard)
 
 
