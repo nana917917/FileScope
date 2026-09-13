@@ -41,7 +41,8 @@ def test_no_network_client_is_imported() -> None:
     for path in shipping_files():
         with open(path, encoding="utf-8") as handle:
             for number, line in enumerate(handle, 1):
-                if FORBIDDEN.search(line):
+                code = line.split("#", 1)[0]  # comments may mention the word
+                if FORBIDDEN.search(code):
                     offenders.append(f"{os.path.relpath(path, ROOT)}:{number}: {line.strip()}")
     assert offenders == [], "network-capable code in the shipping package:\n" + "\n".join(offenders)
 

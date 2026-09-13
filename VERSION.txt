@@ -1,0 +1,18 @@
+FileScope 5.0.0-rc1
+Build: pyinstaller onedir (win64)
+Source branch: codex/v5-major-rebuild
+
+Contents
+  FileScope.exe        program (no Python installation required)
+  _internal/           runtime files
+  README.md            full documentation (Japanese)
+  QUICKSTART.md        10-minute introduction
+  THIRD_PARTY_NOTICES.md
+  LICENSE.txt
+  docs/                regression matrix, feature inventory, local acceptance test
+  bench_results.json   performance measurements of this build family
+
+First run
+  1. Double-click FileScope.exe
+  2. Pick a folder, type a word, press 検索開始
+  3. Optional: run "FileScope.exe --self-test" to check this PC

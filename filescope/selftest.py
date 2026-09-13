@@ -344,6 +344,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="FileScope release self test")
     parser.add_argument("--keep-workspace", action="store_true", help="do not delete the TEMP workspace")
     parser.add_argument("--quiet", action="store_true", help="only print the summary line")
+    parser.add_argument("--out", help="also write the report to this file")
     args = parser.parse_args(argv)
     started = time.time()
     report = run(keep_workspace=args.keep_workspace)
@@ -351,7 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.quiet:
         text = "\n".join(line for line in text.splitlines() if line.startswith("summary:"))
     print(text)
-    print(f"elapsed: {time.time() - started:.2f}s")
+    elapsed_line = f"elapsed: {time.time() - started:.2f}s"
+    print(elapsed_line)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            handle.write(text + "\n" + elapsed_line + "\n")
     return 1 if report.failed else 0
 
 

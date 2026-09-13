@@ -8,8 +8,13 @@ project_root = Path(SPECPATH)
 
 datas = [
     (str(project_root / "README.md"), "."),
+    (str(project_root / "QUICKSTART.md"), "."),
     (str(project_root / "ARCHITECTURE.md"), "."),
     (str(project_root / "THIRD_PARTY_NOTICES.md"), "."),
+    (str(project_root / "LICENSE.txt"), "."),
+    (str(project_root / "VERSION.txt"), "."),
+    (str(project_root / "docs"), "docs"),
+    (str(project_root / "bench_results.json"), "."),
 ]
 
 hiddenimports = [

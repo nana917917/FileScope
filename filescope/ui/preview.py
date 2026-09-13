@@ -68,6 +68,7 @@ class PreviewPane(ttk.Frame):
         self.text.tag_configure("location", foreground="#0b6b3a", font=("", 9, "bold"))
         self.text.tag_configure("note", foreground="#777777")
         self.after(120, self._poll_pending)
+        self._set_text("結果を選ぶと、ここに根拠（セル・ページ・段落）が表示されます。")
 
     # ------------------------------------------------------------- public
     def show(self, result: FileResult, config, *, search_text: str = "", on_chunks=None) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__version__ = "5.0.0"
+__version__ = "5.0.0-rc1"
 
 # Bumped whenever extraction output changes shape or content. Index rows carry
 # the version they were written with so a change can invalidate just the

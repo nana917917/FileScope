@@ -30,12 +30,19 @@ def main(argv: list[str] | None = None) -> int:
     install_crash_handler()
 
     if args.diagnostics:
-        print(diagnostics.collect().as_text())
+        text = diagnostics.collect().as_text()
+        print(text)
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as handle:
+                handle.write(text + "\n")
         return 0
     if args.self_test:
         from .selftest import main as selftest_main
 
-        return selftest_main(["--keep-workspace"] if args.keep_workspace else [])
+        argv = ["--keep-workspace"] if args.keep_workspace else []
+        if args.out:
+            argv += ["--out", args.out]
+        return selftest_main(argv)
     if args.search:
         return run_headless_search(args)
     return run_gui(settings)
@@ -55,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--query", default="", help="query text for --search")
     parser.add_argument("--mode", default="standard", choices=("fast", "standard", "full"))
     parser.add_argument("--json", action="store_true", help="emit search results as JSON")
+    parser.add_argument("--out", help="also write the JSON/report to this file")
     parser.add_argument("--limit", type=int, default=0, help="limit printed results")
     parser.add_argument("--log-level", default="", help="DEBUG / INFO / WARNING")
     return parser
@@ -167,9 +175,8 @@ def run_headless_search(args) -> int:
         return 2
     elapsed = time.time() - started
     if args.json:
-        print(
-            json.dumps(
-                {
+        payload = json.dumps(
+            {
                     "query": config.query,
                     "mode": config.mode,
                     "elapsed": round(elapsed, 3),
@@ -184,17 +191,30 @@ def run_headless_search(args) -> int:
                         }
                         for result in summary.results[: args.limit or len(summary.results)]
                     ],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+            },
+            ensure_ascii=False,
+            indent=2,
         )
+        print(payload)
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as handle:
+                handle.write(payload)
     else:
-        print(summary.coverage.line())
-        for result in summary.results[: args.limit or len(summary.results)]:
-            print(f"{result.hit_count:5}  {result.file_kind.value:9} {result.path}")
+        lines = [summary.coverage.line()]
+        lines.extend(
+            f"{result.hit_count:5}  {result.file_kind.value:9} {result.path}"
+            for result in summary.results[: args.limit or len(summary.results)]
+        )
+        print("\n".join(lines))
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as handle:
+                handle.write("\n".join(lines) + "\n")
     if database is not None:
         database.close()
+    # Persist settings (recent roots, index state) even in headless mode, which
+    # also proves the data directory is writable on a fresh machine.
+    settings.remember_root(args.search)
+    settings.save()
     return 0
 
 

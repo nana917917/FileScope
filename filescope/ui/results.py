@@ -14,16 +14,16 @@ from dataclasses import dataclass
 from ..core.models import CLOUD_LABELS, SOURCE_LABELS, FileResult
 
 COLUMNS: tuple[tuple[str, str, int], ...] = (
-    ("confirmed", "済", 34),
-    ("name", "ファイル", 260),
-    ("displays", "一致条件", 150),
-    ("hits", "Hit数", 60),
-    ("kind", "種類", 60),
-    ("modified", "更新日時", 130),
-    ("size", "サイズ", 90),
-    ("source", "Source", 90),
-    ("ocr", "OCR", 50),
-    ("path", "Path", 320),
+    ("confirmed", "済", 30),
+    ("name", "ファイル", 180),
+    ("displays", "一致条件", 100),
+    ("hits", "Hit数", 48),
+    ("kind", "種類", 50),
+    ("modified", "更新日時", 108),
+    ("size", "サイズ", 62),
+    ("source", "Source", 70),
+    ("ocr", "OCR", 46),
+    ("path", "Path", 190),
 )
 
 WINDOW_ROWS = 300       # rows kept in the widget at once

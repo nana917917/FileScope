@@ -194,6 +194,8 @@ class MainWindow(ttk.Frame):
     def _build_body(self) -> None:
         body = ttk.Panedwindow(self, orient="horizontal")
         body.pack(fill="both", expand=True, padx=8, pady=4)
+        self.body_paned = body
+        self._sash_placed = False
 
         left = ttk.Frame(body)
         right = ttk.Frame(body)
@@ -214,8 +216,10 @@ class MainWindow(ttk.Frame):
         self.facet_inner = ttk.Frame(self.facet_frame)
         self.facet_inner.pack(fill="x")
 
+        tree_area = ttk.Frame(left)
+        tree_area.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(
-            left,
+            tree_area,
             columns=tuple(key for key, _l, _w in results_module.COLUMNS),
             show="headings",
             selectmode="browse",
@@ -226,19 +230,23 @@ class MainWindow(ttk.Frame):
         for tag, options in results_module.TAGS.items():
             self.tree.tag_configure(tag, **options)
 
-        self.scrollbar = ttk.Scrollbar(left, orient="vertical", command=self._on_scroll)
-        self.tree.configure(yscrollcommand=self._on_tree_scroll)
-        self.tree.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        self.scrollbar = ttk.Scrollbar(tree_area, orient="vertical", command=self._on_scroll)
+        self.hscrollbar = ttk.Scrollbar(tree_area, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=self._on_tree_scroll, xscrollcommand=self.hscrollbar.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        self.scrollbar.grid(row=0, column=1, sticky="ns")
+        self.hscrollbar.grid(row=1, column=0, sticky="ew")
+        tree_area.rowconfigure(0, weight=1)
+        tree_area.columnconfigure(0, weight=1)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.tree.bind("<Double-1>", lambda _event: self.open_selected())
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<MouseWheel>", self._on_wheel)
 
         issues_frame = ttk.LabelFrame(left, text="問題 / 未検索", padding=4)
-        issues_frame.pack(fill="x", pady=(4, 0))
+        self.issues_frame = issues_frame
         self.issue_tree = ttk.Treeview(
-            issues_frame, columns=("severity", "code", "path", "message"), show="headings", height=4
+            issues_frame, columns=("severity", "code", "path", "message"), show="headings", height=3
         )
         for key, label, width in (
             ("severity", "種別", 60),
@@ -255,6 +263,31 @@ class MainWindow(ttk.Frame):
 
         self.preview = PreviewPane(right)
         self.preview.pack(fill="both", expand=True)
+        # Without an explicit sash position the result pane (whose requested
+        # width is the sum of its columns) can squeeze the preview to zero width.
+        self.after(150, self._place_sash)
+        body.bind("<Configure>", self._on_body_configure)
+
+    def _place_sash(self, *, force: bool = False) -> None:
+        try:
+            width = self.body_paned.winfo_width()
+            if width < 400:
+                return
+            try:
+                right_width = self.body_paned.winfo_width() - self.body_paned.sashpos(0)
+            except tk.TclError:
+                right_width = 0
+            if not force and self._sash_placed and right_width >= 220:
+                return
+            target = max(520, int(width * 0.64))
+            self.body_paned.sashpos(0, min(target, width - 300))
+            self._sash_placed = True
+        except tk.TclError:
+            return
+
+    def _on_body_configure(self, _event=None) -> None:
+        # Only repair a collapsed preview; never fight a user-dragged sash.
+        self.after(60, lambda: self._place_sash(force=False))
 
     def _build_status(self) -> None:
         bar = ttk.Frame(self, padding=(8, 2, 8, 6))
@@ -401,7 +434,9 @@ class MainWindow(ttk.Frame):
         self._coverage_text.set(summary.coverage.line())
         self._progress_text.set("")
         elapsed = summary.elapsed
-        self._status_text.set(f"{len(summary.results):,}資料 / {summary.total_hits:,}件一致 / {elapsed:.1f}秒")
+        status = (
+            f"完了: {len(summary.results):,}資料 / {summary.total_hits:,}件一致 / {elapsed:.1f}秒"
+        )
         self._rebuild_facets()
         self._render_results()
         record_history(self.settings, self.state, len(summary.results), elapsed)
@@ -409,12 +444,17 @@ class MainWindow(ttk.Frame):
         if self.settings.autosave_results and summary.results:
             path = self._autosave(summary)
             if path:
-                self._status_text.set(f"{self._status_text.get()} / 自動保存: {path}")
+                status += f" / 自動保存: {path}"
+        self._status_text.set(status)
         self._update_index_label()
 
     def _add_issue(self, issue) -> None:
         if self._issue_rows >= MAX_ISSUE_ROWS:
             return
+        if not self.issues_frame.winfo_ismapped():
+            # The panel only appears when there is something to report, so an
+            # ordinary search keeps the whole window for results.
+            self.issues_frame.pack(fill="x", pady=(4, 0))
         self._issue_rows += 1
         self.issue_tree.insert(
             "",
@@ -427,6 +467,7 @@ class MainWindow(ttk.Frame):
         for item in self.issue_tree.get_children():
             self.issue_tree.delete(item)
         self._issue_rows = 0
+        self.issues_frame.pack_forget()
 
     # ------------------------------------------------------------- results
     def _visible_rows(self) -> list:
@@ -451,6 +492,9 @@ class MainWindow(ttk.Frame):
         self._status_count()
 
     def _status_count(self) -> None:
+        if self.session is None or self.session.finished:
+            self._progress_text.set("")
+            return
         total = len(self.model.all_rows)
         shown = len(self.model.visible)
         if shown == total:

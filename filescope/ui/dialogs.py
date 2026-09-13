@@ -52,7 +52,7 @@ class ConditionBuilderDialog(Dialog):
     """Build AND / OR / N-of-M / exclude / phrase / proximity conditions."""
 
     def __init__(self, parent, *, initial: str = "", legacy_operator: str = "OR") -> None:
-        super().__init__(parent, "条件を作る", width=720, height=620)
+        super().__init__(parent, "条件を作る", width=720, height=580)
         self.legacy_operator = legacy_operator
         body = ttk.Frame(self, padding=10)
         body.pack(fill="both", expand=True)
