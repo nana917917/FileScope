@@ -40,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
         from .selftest import main as selftest_main
 
         argv = ["--keep-workspace"] if args.keep_workspace else []
+        if args.quiet:
+            argv.append("--quiet")
         if args.out:
             argv += ["--out", args.out]
         return selftest_main(argv)
@@ -58,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the release self test (TEMP only, never reads user documents)",
     )
     parser.add_argument("--keep-workspace", action="store_true", help="keep the self-test TEMP folder")
+    parser.add_argument("--quiet", action="store_true", help="print only the self-test summary")
     parser.add_argument("--search", metavar="ROOT", help="run a search without the GUI")
     parser.add_argument("--query", default="", help="query text for --search")
     parser.add_argument("--mode", default="standard", choices=("fast", "standard", "full"))
