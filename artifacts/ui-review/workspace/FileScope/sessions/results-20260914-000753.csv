@@ -1,7 +1,0 @@
-﻿済,ファイル,一致条件,Hit数,種類,更新日時,サイズ,Source,OCR,場所,根拠,Path
-,case.txt,AAA&BBB,2,Text,2026-09-14 00:05,23B,Local Local,,1行,aAa と BBB の混在,E:\07_Program (プログラム)\FileScope\artifacts\ui-review\workspace\corpus\case.txt
-,text_utf8.txt,AAA&BBB,2,Text,2026-09-14 00:05,39B,Local Local,,1行,AAA 評価,E:\07_Program (プログラム)\FileScope\artifacts\ui-review\workspace\corpus\text_utf8.txt
-,review.docx,AAA&BBB,2,Word,2026-09-14 00:05,36.5KB,Local Local,,段落 1,AAA 落下試験の結果,E:\07_Program (プログラム)\FileScope\artifacts\ui-review\workspace\corpus\review.docx
-,slides.pptx,AAA&BBB,2,PPT,2026-09-14 00:05,33.2KB,Local Local,,スライド1,AAA 耐久レビュー,E:\07_Program (プログラム)\FileScope\artifacts\ui-review\workspace\corpus\slides.pptx
-,manual_2page.pdf,AAA&BBB,2,PDF,2026-09-14 00:05,840B,Local Local,,1ページ [PDF文字],AAA ??,E:\07_Program (プログラム)\FileScope\artifacts\ui-review\workspace\corpus\manual_2page.pdf
-,report.xlsx,AAA&BBB,2,Excel,2026-09-14 00:05,9.1KB,Local Local,,評価!A1,AAA,E:\07_Program (プログラム)\FileScope\artifacts\ui-review\workspace\corpus\report.xlsx
