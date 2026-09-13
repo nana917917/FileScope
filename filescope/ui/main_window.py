@@ -6,6 +6,7 @@ import csv
 import os
 import queue
 import tkinter as tk
+from contextlib import suppress
 from tkinter import filedialog, messagebox, ttk
 
 from .. import paths
@@ -79,7 +80,7 @@ class MainWindow(ttk.Frame):
         self._bind_keys()
         self._open_index()
         self._update_index_label()
-        self.after(DRAIN_MS, self._drain_events)
+        self._drain_job = self.after(DRAIN_MS, self._drain_events)
 
     # ------------------------------------------------------------- building
     def _build_menu(self) -> None:
@@ -426,7 +427,7 @@ class MainWindow(ttk.Frame):
         self._apply_full_scan_updates()
         if needs_render:
             self._render_results()
-        self.after(DRAIN_MS, self._drain_events)
+        self._drain_job = self.after(DRAIN_MS, self._drain_events)
 
     def _on_finished(self, summary) -> None:
         self.cancel_button.configure(state="disabled")
@@ -1042,6 +1043,11 @@ class MainWindow(ttk.Frame):
 
     def on_close(self) -> None:
         try:
+            # Cancel the timer callbacks first: a pending `after` firing after
+            # destroy() prints Tcl "invalid command name" noise.
+            with suppress(tk.TclError):
+                self.after_cancel(self._drain_job)
+            self.preview.stop()
             if self.session is not None and not self.session.finished:
                 self.session.cancel()
                 self.session.wait(5)

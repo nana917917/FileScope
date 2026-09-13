@@ -11,6 +11,7 @@ import queue
 import threading
 import tkinter as tk
 from collections import OrderedDict
+from contextlib import suppress
 from dataclasses import dataclass, field
 from tkinter import ttk
 
@@ -67,7 +68,7 @@ class PreviewPane(ttk.Frame):
         self.text.tag_configure("current", background="#ffb347")
         self.text.tag_configure("location", foreground="#0b6b3a", font=("", 9, "bold"))
         self.text.tag_configure("note", foreground="#777777")
-        self.after(120, self._poll_pending)
+        self._poll_job = self.after(120, self._poll_pending)
         self._set_text("結果を選ぶと、ここに根拠（セル・ページ・段落）が表示されます。")
 
     # ------------------------------------------------------------- public
@@ -151,7 +152,12 @@ class PreviewPane(ttk.Frame):
             except queue.Empty:
                 break
             self._apply(token, key, content)
-        self.after(120, self._poll_pending)
+        self._poll_job = self.after(120, self._poll_pending)
+
+    def stop(self) -> None:
+        """Cancel the pending poll so shutdown stays quiet."""
+        with suppress(tk.TclError):
+            self.after_cancel(self._poll_job)
 
     def _apply(self, token: int, key: tuple, content: PreviewContent) -> None:
         if token != self._token:
