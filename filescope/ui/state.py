@@ -108,8 +108,9 @@ class UiState:
 
     # --------------------------------------------------------------- search
     def to_config(self, settings: Settings) -> SearchConfig:
+        roots = self.roots()
         return SearchConfig(
-            roots=(self.root,) if self.root else (),
+            roots=roots,
             query=self.combined_query(),
             legacy_operator=self.legacy_operator,
             mode=self.mode,
@@ -149,6 +150,11 @@ class UiState:
         if not query:
             return exclusions
         return f"({query}) & {exclusions}"
+
+    def roots(self) -> tuple[str, ...]:
+        """V4 allowed several search folders; V5 accepts `;` separated paths."""
+        parts = [part.strip().strip('"') for part in self.root.replace("\n", ";").split(";")]
+        return tuple(dict.fromkeys(part for part in parts if part))
 
     # ------------------------------------------------------------ refine
     def make_refine_matcher(self) -> tuple[QueryMatcher | None, str]:

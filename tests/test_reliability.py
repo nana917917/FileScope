@@ -77,6 +77,80 @@ class TestSettings:
         assert loaded.defaults.root == "C:/資料"
         assert loaded.confirmed_paths == ["C:/a.txt"]
 
+    def test_real_v4_settings_are_migrated(self, tmp_path, monkeypatch) -> None:
+        """The exact schema V4.1 writes must load without losing user state."""
+        v4_file = tmp_path / "settings.json"
+        v4_file.write_text(
+            json.dumps(
+                {
+                    "folder": "D:/品証共有",
+                    "keyword": "2of(AAA,落下,耐久)",
+                    "exclude_keyword": "旧版",
+                    "include_subfolders": True,
+                    "include_excel": True,
+                    "include_pdf": False,
+                    "include_word": True,
+                    "include_powerpoint": True,
+                    "include_text": True,
+                    "include_unknown_text": False,
+                    "pdf_ocr_mode": "全ページ",
+                    "confirmed_files": ["D:/品証共有/A.xlsx", "D:/品証共有/B.pdf"],
+                    "case_sensitive": True,
+                    "ignore_width": True,
+                    "part_number_mode": True,
+                    "search_formula": True,
+                    "search_mode": "AND",
+                    "search_path_names": True,
+                    "stage_remote_files": True,
+                    "history": ["耐久", "評価"],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(paths, "settings_path", lambda: str(v4_file))
+        monkeypatch.setattr(paths, "legacy_settings_path", lambda: str(tmp_path / "missing.json"))
+
+        settings = Settings.load()
+        assert settings.defaults.root == "D:/品証共有"
+        assert settings.defaults.query == "2of(AAA,落下,耐久)"
+        assert settings.defaults.exclude_query == "旧版"
+        assert settings.defaults.legacy_operator == "AND"
+        assert settings.defaults.pdf_ocr_mode == "all"
+        assert settings.defaults.include_pdf is False
+        assert settings.defaults.include_unknown_text is False
+        assert settings.defaults.case_sensitive is True
+        assert settings.defaults.part_number_mode is True
+        assert settings.confirmed_paths == ["D:/品証共有/A.xlsx", "D:/品証共有/B.pdf"]
+        assert [entry["query"] for entry in settings.history] == ["耐久", "評価"]
+        assert settings.schema_version == SCHEMA_VERSION
+        # The V4 file is preserved so a downgrade stay possible.
+        backup = tmp_path / "settings.v4-backup.json"
+        assert backup.is_file()
+        assert "confirmed_files" in backup.read_text(encoding="utf-8")
+        # And saving now writes the V5 schema, which loads back identically.
+        settings.defaults.query = "耐久"
+        assert settings.save()
+        saved = json.loads(v4_file.read_text(encoding="utf-8"))
+        assert saved["schema_version"] == SCHEMA_VERSION
+        reloaded = Settings.load()
+        assert reloaded.defaults.query == "耐久"
+        assert reloaded.confirmed_paths == ["D:/品証共有/A.xlsx", "D:/品証共有/B.pdf"]
+
+    def test_v4_ocr_mode_strings(self) -> None:
+        assert Settings.from_v4({"pdf_ocr_mode": "自動"}).defaults.pdf_ocr_mode == "auto"
+        assert Settings.from_v4({"pdf_ocr_mode": "全ページ"}).defaults.pdf_ocr_mode == "all"
+        assert Settings.from_v4({"pdf_ocr_mode": "OFF"}).defaults.pdf_ocr_mode == "off"
+        assert Settings.from_v4({}).defaults.pdf_ocr_mode == "auto"
+
+    def test_v5_file_is_not_treated_as_v4(self, tmp_path, monkeypatch) -> None:
+        path = tmp_path / "settings.json"
+        Settings().save(str(path))
+        monkeypatch.setattr(paths, "settings_path", lambda: str(path))
+        loaded = Settings.load()
+        assert loaded.schema_version == SCHEMA_VERSION
+        assert not (tmp_path / "settings.v4-backup.json").exists()
+
 
 class TestLogging:
     def test_log_file_excludes_document_text(self, tmp_path, monkeypatch) -> None:

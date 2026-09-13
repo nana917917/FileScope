@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from filescope.core.models import CloudState, FileEntry, SourceType
 from filescope.platform import onedrive, tempfiles, windows
+from filescope.platform import tesseract as tesseract_module
 from filescope.platform.tesseract import candidate_paths
 
 
@@ -51,6 +52,86 @@ class TestTesseractDiscovery:
         assert any("program files\\tesseract-ocr" in path for path in paths)
         assert any("localappdata" in path or "tesseract-ocr" in path for path in paths)
         assert any(path.endswith("tesseract.exe") for path in paths)
+
+    def test_local_appdata_programs_layout_is_detected(self, tmp_path, monkeypatch) -> None:
+        """The user's real layout: %LOCALAPPDATA%\\Tesseract-OCR\\tesseract.exe."""
+        fake_home = tmp_path / "LocalAppData"
+        target_dir = fake_home / "Tesseract-OCR"
+        target_dir.mkdir(parents=True)
+        exe = target_dir / "tesseract.exe"
+        exe.write_bytes(b"MZ fake")
+        monkeypatch.setenv("LOCALAPPDATA", str(fake_home))
+        monkeypatch.delenv("TESSERACT_CMD", raising=False)
+        monkeypatch.setattr(
+            tesseract_module.shutil, "which", lambda _name: None
+        )
+        assert tesseract_module.find_executable() == str(exe)
+
+    def test_programs_subfolder_layout_is_detected(self, tmp_path, monkeypatch) -> None:
+        fake_home = tmp_path / "LocalAppData"
+        target_dir = fake_home / "Programs" / "Tesseract-OCR"
+        target_dir.mkdir(parents=True)
+        exe = target_dir / "tesseract.exe"
+        exe.write_bytes(b"MZ fake")
+        monkeypatch.setenv("LOCALAPPDATA", str(fake_home))
+        monkeypatch.delenv("TESSERACT_CMD", raising=False)
+        monkeypatch.setattr(tesseract_module.shutil, "which", lambda _name: None)
+        assert tesseract_module.find_executable() == str(exe)
+
+    def test_env_var_wins(self, tmp_path, monkeypatch) -> None:
+        exe = tmp_path / "custom" / "tesseract.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"MZ fake")
+        monkeypatch.setenv("TESSERACT_CMD", str(exe))
+        assert tesseract_module.find_executable() == str(exe)
+
+    def test_probe_reports_languages_from_stub(self, tmp_path, monkeypatch) -> None:
+        """probe() must accept an installed engine and report jpn+eng."""
+        import types
+
+        exe = tmp_path / "Tesseract-OCR" / "tesseract.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"MZ fake")
+        monkeypatch.setenv("TESSERACT_CMD", str(exe))
+        module = types.ModuleType("pytesseract")
+        module.pytesseract = types.SimpleNamespace(tesseract_cmd="")
+        module.get_languages = lambda config="": ["eng", "jpn", "osd"]
+        monkeypatch.setitem(sys.modules, "pytesseract", module)
+        monkeypatch.setattr(
+            tesseract_module.subprocess,
+            "run",
+            lambda *a, **k: types.SimpleNamespace(stdout="tesseract v5.5.0\n", returncode=0),
+        )
+        status = tesseract_module.probe()
+        assert status.ready
+        assert status.language_expression == "jpn+eng"
+        assert "5.5" in status.version
+        assert module.pytesseract.tesseract_cmd == str(exe)
+
+    def test_probe_reports_missing_language_data(self, tmp_path, monkeypatch) -> None:
+        import types
+
+        exe = tmp_path / "tesseract.exe"
+        exe.write_bytes(b"MZ fake")
+        monkeypatch.setenv("TESSERACT_CMD", str(exe))
+        module = types.ModuleType("pytesseract")
+        module.pytesseract = types.SimpleNamespace(tesseract_cmd="")
+        module.get_languages = lambda config="": ["eng"]
+        monkeypatch.setitem(sys.modules, "pytesseract", module)
+        monkeypatch.setattr(
+            tesseract_module.subprocess,
+            "run",
+            lambda *a, **k: types.SimpleNamespace(stdout="", returncode=0),
+        )
+        status = tesseract_module.probe()
+        assert status.ready and status.language_expression == "eng"
+        assert "jpn未導入" in status.message
+
+    def test_probe_without_pytesseract_is_graceful(self, monkeypatch) -> None:
+        monkeypatch.setitem(sys.modules, "pytesseract", None)
+        status = tesseract_module.probe()
+        assert status.ready is False
+        assert "OCR未導入" in status.message
 
 
 class TestTempStaging:

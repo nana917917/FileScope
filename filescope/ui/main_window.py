@@ -6,7 +6,6 @@ import csv
 import os
 import queue
 import tkinter as tk
-import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
 from .. import paths
@@ -159,9 +158,11 @@ class MainWindow(ttk.Frame):
             "word": tk.BooleanVar(value=self.state.include_word),
             "ppt": tk.BooleanVar(value=self.state.include_powerpoint),
             "text": tk.BooleanVar(value=self.state.include_text),
+            "unknown": tk.BooleanVar(value=self.state.include_unknown_text),
         }
         for key, label in (("excel", "Excel"), ("pdf", "PDF"), ("word", "Word"), ("ppt", "PPT"), ("text", "Text")):
             ttk.Checkbutton(exact, text=label, variable=self.kind_vars[key]).pack(side="left", padx=2)
+        ttk.Checkbutton(exact, text="未知形式", variable=self.kind_vars["unknown"]).pack(side="left", padx=2)
         ttk.Button(exact, text="条件", command=self.open_condition_builder).pack(side="left", padx=(12, 2))
         ttk.Button(exact, text="詳細設定", command=self.open_settings).pack(side="left", padx=2)
         ttk.Button(exact, text="索引", command=self.open_index_status).pack(side="left", padx=2)
@@ -179,6 +180,16 @@ class MainWindow(ttk.Frame):
         ttk.Button(actions, text="履歴", command=self.open_history).pack(side="left", padx=2)
         ttk.Button(actions, text="CSV保存", command=self.export_csv).pack(side="right")
         ttk.Label(actions, textvariable=self._index_text, foreground="#555").pack(side="right", padx=10)
+        ocr_text = (
+            f"OCR: {self.ocr_status.language_expression or '利用可'}"
+            if self.ocr_status.ready
+            else "OCR: 未導入（診断）"
+        )
+        self.ocr_label = ttk.Label(
+            actions, text=ocr_text, foreground="#555" if self.ocr_status.ready else "#8a6d3b"
+        )
+        self.ocr_label.pack(side="right", padx=10)
+        self.ocr_label.bind("<Button-1>", lambda _e: self.open_diagnostics())
 
     def _build_body(self) -> None:
         body = ttk.Panedwindow(self, orient="horizontal")
@@ -251,6 +262,7 @@ class MainWindow(ttk.Frame):
         ttk.Label(bar, textvariable=self._coverage_text).pack(side="left")
         ttk.Label(bar, textvariable=self._progress_text, foreground="#555").pack(side="left", padx=12)
         ttk.Label(bar, textvariable=self._status_text, foreground="#555").pack(side="right")
+        ttk.Label(bar, text="外部送信なし / ローカル処理", foreground="#777").pack(side="right", padx=12)
 
     def _bind_keys(self) -> None:
         self.master.bind("<Control-l>", lambda _e: self.query_entry.focus_set())
@@ -264,7 +276,10 @@ class MainWindow(ttk.Frame):
         self.master.bind("<Control-f>", lambda _e: self._focus_preview_search())
         self.master.bind("<Control-Return>", lambda _e: self.reveal_selected())
         self.master.bind("<Escape>", lambda _e: self._on_escape())
-        self.master.bind("<space>", lambda _e: self.toggle_confirmed())
+        # Space toggles 確認済み only while the result list has focus; binding it
+        # on the window would fire while the user types a space in the search box.
+        self.tree.bind("<space>", lambda _e: (self.toggle_confirmed(), "break")[1])
+        self.master.bind("<Control-Shift-C>", lambda _e: self.toggle_confirmed())
 
     # ------------------------------------------------------------- search
     def _sync_state(self) -> None:
@@ -277,14 +292,17 @@ class MainWindow(ttk.Frame):
         self.state.include_word = bool(self.kind_vars["word"].get())
         self.state.include_powerpoint = bool(self.kind_vars["ppt"].get())
         self.state.include_text = bool(self.kind_vars["text"].get())
+        self.state.include_unknown_text = bool(self.kind_vars["unknown"].get())
 
     def start_search(self) -> None:
         self._sync_state()
-        if not self.state.root:
+        roots = self.state.roots()
+        if not roots:
             messagebox.showinfo("検索場所", "検索するフォルダを指定してください。")
             return
-        if not os.path.isdir(self.state.root):
-            messagebox.showerror("検索場所", f"フォルダが見つかりません:\n{self.state.root}")
+        missing = [root for root in roots if not os.path.isdir(root)]
+        if missing:
+            messagebox.showerror("検索場所", "フォルダが見つかりません:\n" + "\n".join(missing))
             return
         if not self.state.combined_query().strip():
             messagebox.showinfo("検索条件", "検索語またはメタ条件を指定してください。")
@@ -292,7 +310,8 @@ class MainWindow(ttk.Frame):
         if self.session is not None and not self.session.finished:
             self.session.cancel()
 
-        self.settings.remember_root(self.state.root)
+        for root in roots:
+            self.settings.remember_root(root)
         self.root_combo.configure(values=self.settings.recent_roots)
         self.model.clear()
         self._clear_issues()
@@ -519,10 +538,14 @@ class MainWindow(ttk.Frame):
             result, config, search_text=self.state.query, on_chunks=self._on_preview_chunks
         )
 
-    def _on_preview_chunks(self, _content, chunks) -> None:
-        """Worker-thread callback: compute the exact hit set for one file."""
-        result = self.preview._current
-        if result is None or result.hit_count_exact:
+    def _on_preview_chunks(self, result, chunks) -> None:
+        """Worker-thread callback: compute the exact hit set for one file.
+
+        ``result`` is the file the chunks belong to (not whatever row happens to
+        be selected now), so a fast A->B->C click sequence cannot write A's hits
+        onto C's row.
+        """
+        if result.hit_count_exact:
             return
         matcher = self._current_matcher()
         if matcher is None:
@@ -894,6 +917,7 @@ class MainWindow(ttk.Frame):
         self.kind_vars["word"].set(self.state.include_word)
         self.kind_vars["ppt"].set(self.state.include_powerpoint)
         self.kind_vars["text"].set(self.state.include_text)
+        self.kind_vars["unknown"].set(self.state.include_unknown_text)
         self._update_mode_hint()
 
     def _focus_preview_search(self) -> None:
@@ -1031,4 +1055,4 @@ def write_results_csv(path: str, rows) -> bool:
         return False
 
 
-_ = (webbrowser, OCR_MODE_LABELS, ONLINE_POLICY_LABELS, collect_diagnostics)
+_ = (OCR_MODE_LABELS, ONLINE_POLICY_LABELS, collect_diagnostics)

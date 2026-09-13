@@ -158,6 +158,15 @@ def build_corpus(root: str | os.PathLike[str], *, with_ocr_image: bool = True) -
     add("unknown.dat", lambda p: p.write_text("落下 試験 データ\n", encoding="utf-8"))
     add("binary.bin", lambda p: p.write_bytes(os.urandom(4096)))
 
+    # Comparison fixtures: the exact shapes the V4/V5 regression matrix needs.
+    add(
+        "parts.txt",
+        lambda p: p.write_text("ABC-123 の記録\n2SC4117 と 2SC411T\nABC 123 の別表記\n", encoding="utf-8"),
+    )
+    add("nfkc.txt", lambda p: p.write_text("ＡＢＣ　ＤＥＦ の全角表記\n", encoding="utf-8"))
+    add("case.txt", lambda p: p.write_text("aAa と BBB の混在\n", encoding="utf-8"))
+    add("phrase_near.txt", lambda p: p.write_text("耐久 試験を実施\n電源とノイズの測定\n", encoding="utf-8"))
+
     nested = root_path / "sub" / "deep"
     nested.mkdir(parents=True, exist_ok=True)
     (nested / "nested_text.txt").write_text("耐久 サブフォルダ\n", encoding="utf-8")

@@ -144,9 +144,65 @@ class Settings:
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 log.warning("settings unreadable, using defaults: %s", exc)
                 _quarantine(path)
-        elif os.path.isfile(paths.legacy_settings_path()):
+        if raw and looks_like_v4_settings(raw):
+            # V4.1 wrote its own schema to the same path. Migrate it and keep a
+            # copy so the user can still go back to V4.
+            backup = _backup_v4_settings(path)
+            log.info("migrated V4 settings (backup: %s)", backup or "none")
+            return cls.from_v4(raw)
+        if not raw and os.path.isfile(paths.legacy_settings_path()):
             raw = _load_legacy()
         return cls.from_dict(raw)
+
+    @classmethod
+    def from_v4(cls, raw: dict[str, Any]) -> Settings:
+        """Convert a real V4.1 settings file (single folder, Japanese OCR mode)."""
+        settings = cls()
+        defaults = settings.defaults
+        defaults.root = str(raw.get("folder", "") or "")
+        defaults.query = str(raw.get("keyword", "") or "")
+        defaults.exclude_query = str(raw.get("exclude_keyword", "") or "")
+        defaults.legacy_operator = (
+            "AND" if str(raw.get("search_mode", "OR")).upper() == "AND" else "OR"
+        )
+        defaults.pdf_ocr_mode = _v4_ocr_mode(raw.get("pdf_ocr_mode"))
+        for key in (
+            "include_subfolders",
+            "include_excel",
+            "include_pdf",
+            "include_word",
+            "include_powerpoint",
+            "include_text",
+            "include_unknown_text",
+            "ignore_width",
+            "search_formula",
+            "search_path_names",
+        ):
+            setattr(defaults, key, bool(raw.get(key, True)))
+        for key in ("case_sensitive", "part_number_mode"):
+            setattr(defaults, key, bool(raw.get(key, False)))
+
+        confirmed = raw.get("confirmed_files")
+        if isinstance(confirmed, list):
+            settings.confirmed_paths = sorted({str(item) for item in confirmed if item})
+        if defaults.root:
+            settings.recent_roots = [defaults.root]
+        history = raw.get("history")
+        if isinstance(history, list):
+            settings.history = [
+                {
+                    "query": str(item),
+                    "root": defaults.root,
+                    "mode": defaults.search_mode,
+                    "hits": 0,
+                    "elapsed": 0.0,
+                    "at": "",
+                }
+                for item in history[:200]
+                if isinstance(item, str) and item.strip()
+            ]
+        settings.sanitize()
+        return settings
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Settings:
@@ -251,6 +307,47 @@ def _quarantine(path: str) -> None:
         os.replace(path, f"{path}.corrupt-{stamp}")
     except OSError:
         pass
+
+
+V4_ONLY_KEYS = {
+    "folder",
+    "keyword",
+    "exclude_keyword",
+    "confirmed_files",
+    "search_mode",
+    "pdf_ocr_mode",
+    "include_unknown_text",
+}
+
+
+def looks_like_v4_settings(raw: dict[str, Any]) -> bool:
+    """True for a V4.1 settings file (V5 files always carry ``schema_version``)."""
+    if "schema_version" in raw or "defaults" in raw:
+        return False
+    return bool(V4_ONLY_KEYS & set(raw))
+
+
+def _v4_ocr_mode(value: Any) -> str:
+    """V4 stored the OCR mode as a Japanese UI string."""
+    text = str(value or "").strip()
+    if text in ("全ページ", "ALL", "all", "全页"):
+        return "all"
+    if text in ("OFF", "off", "なし", "無効"):
+        return "off"
+    return "auto"
+
+
+def _backup_v4_settings(path: str) -> str:
+    """Keep a copy of the V4 file before V5 starts saving over it."""
+    target = os.path.join(os.path.dirname(path) or ".", "settings.v4-backup.json")
+    try:
+        if not os.path.exists(target):
+            with open(path, "rb") as source, open(target, "wb") as destination:
+                destination.write(source.read())
+        return target
+    except OSError as exc:
+        log.debug("could not back up V4 settings: %s", exc)
+        return ""
 
 
 def _read_json(path: str) -> Any:

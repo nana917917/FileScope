@@ -1,4 +1,24 @@
-# Baseline (v4.1) — restoration status
+# Baseline (v4.1)
+
+## Resolution
+
+The real V4.1 source has since been recovered from the original conversation
+artifact (the file the user attached, found in the local app cache) and is
+stored here as **`FileScope_v4_1_raw.py`**:
+
+```
+bytes   : 98,739
+lines   : 2,279
+SHA-256 : 902c1dfcdd3fbe6883b038143712630da36de352933fa070b162c3ae03b464bb
+compile : python -m py_compile OK
+```
+
+This file — not the corrupt payload — is the official V4.1 baseline. V5 is
+compared against it by `tools/v4_v5_compare.py` (see `docs/V4_V5_REGRESSION.md`)
+and by `tests/test_v4_compat.py`. The corrupt wrapper is kept below as the
+evidence of the original accident.
+
+## The original accident (kept for the record)
 
 ## Summary
 

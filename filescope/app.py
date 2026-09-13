@@ -32,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.diagnostics:
         print(diagnostics.collect().as_text())
         return 0
+    if args.self_test:
+        from .selftest import main as selftest_main
+
+        return selftest_main(["--keep-workspace"] if args.keep_workspace else [])
     if args.search:
         return run_headless_search(args)
     return run_gui(settings)
@@ -41,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="FileScope", description="Offline document search for Windows")
     parser.add_argument("--version", action="version", version=f"FileScope {__version__}")
     parser.add_argument("--diagnostics", action="store_true", help="print environment diagnostics and exit")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="run the release self test (TEMP only, never reads user documents)",
+    )
+    parser.add_argument("--keep-workspace", action="store_true", help="keep the self-test TEMP folder")
     parser.add_argument("--search", metavar="ROOT", help="run a search without the GUI")
     parser.add_argument("--query", default="", help="query text for --search")
     parser.add_argument("--mode", default="standard", choices=("fast", "standard", "full"))

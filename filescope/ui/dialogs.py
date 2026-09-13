@@ -181,6 +181,7 @@ class AdvancedSettingsDialog(Dialog):
         self.archives_var = tk.BooleanVar(value=state.include_archives)
         self.history_var = tk.BooleanVar(value=settings.history_enabled)
         self.autosave_var = tk.BooleanVar(value=settings.autosave_results)
+        self.subfolders_var = tk.BooleanVar(value=state.include_subfolders)
         self.index_enabled_var = tk.BooleanVar(value=settings.index_enabled and settings.index_max_bytes > 0)
         self.workers_var = tk.StringVar(value=str(state.workers))
         self.index_size_var = tk.StringVar(value=_index_size_label(settings.index_max_bytes))
@@ -226,6 +227,7 @@ class AdvancedSettingsDialog(Dialog):
         row += 1
 
         for label, variable in (
+            ("子フォルダも検索", self.subfolders_var),
             ("大文字小文字を区別", self.case_var),
             ("全角/半角を吸収", self.width_var),
             ("部品番号モード（-・空白を吸収、*可）", self.part_var),
@@ -294,6 +296,7 @@ class AdvancedSettingsDialog(Dialog):
         state.pdf_ocr_mode = self.ocr_var.get()
         state.online_files_policy = self.online_var.get()
         state.case_sensitive = bool(self.case_var.get())
+        state.include_subfolders = bool(self.subfolders_var.get())
         state.ignore_width = bool(self.width_var.get())
         state.part_number_mode = bool(self.part_var.get())
         state.search_path_names = bool(self.path_names_var.get())

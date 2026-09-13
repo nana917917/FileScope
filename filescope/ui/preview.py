@@ -96,7 +96,7 @@ class PreviewPane(ttk.Frame):
         options = self._extract_options(config)
         threading.Thread(
             target=self._load,
-            args=(token, key, entry, options, on_chunks),
+            args=(token, key, entry, options, on_chunks, result),
             name="filescope-preview",
             daemon=True,
         ).start()
@@ -123,14 +123,22 @@ class PreviewPane(ttk.Frame):
             include_archives=config.include_archives,
         )
 
-    def _load(self, token: int, key: tuple, entry: FileEntry, options: ExtractOptions, on_chunks) -> None:
+    def _load(
+        self,
+        token: int,
+        key: tuple,
+        entry: FileEntry,
+        options: ExtractOptions,
+        on_chunks,
+        result: FileResult,
+    ) -> None:
         chunks: list = []
         content = self._build(entry, options, chunks)
         if on_chunks is not None and chunks:
             # Phase 2 of JIT: the file was read in full for the preview, so the
             # caller can now replace the early-accept hit count with the exact one.
             try:
-                on_chunks(content, chunks)
+                on_chunks(result, chunks)
             except Exception as exc:  # never let a callback break the preview
                 log.debug("preview callback failed: %s", exc)
         self._pending.put((token, key, content))
