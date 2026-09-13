@@ -18,7 +18,7 @@ if (-not $Zip) {
     $Zip = (Get-ChildItem (Join-Path $root "dist") -Filter "FileScope-v*-win64.zip" |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 }
-if (-not $Zip -or -not (Test-Path $Zip)) { throw "RC zip not found; run scripts\build_rc_zip.ps1 first" }
+if (-not $Zip -or -not (Test-Path $Zip)) { throw "release zip not found; run scripts\build_release_zip.ps1 first" }
 
 $python = Join-Path $root ".venv\Scripts\python.exe"
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("filescope-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 8))

@@ -96,7 +96,7 @@ def main() -> int:
     settings = Settings()
     settings.index_enabled = False
     window_root = tk.Tk()
-    window_root.title("FileScope 5.0.0-rc1")
+    window_root.title("FileScope 5.0.0")
     window_root.geometry("1280x820+40+20")
     window = MainWindow(window_root, settings=settings)
     window.root_var.set(str(corpus))

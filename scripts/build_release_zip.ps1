@@ -1,15 +1,15 @@
-# Build the portable onedir bundle and package it as the RC zip.
+# Build the portable onedir bundle and package it as a release zip.
 # ASCII-only on purpose (Japanese text in .ps1 has caused encoding damage).
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File scripts\build_rc_zip.ps1
-#   powershell -ExecutionPolicy Bypass -File scripts\build_rc_zip.ps1 -SkipBuild -SkipInstall -Measure
+#   powershell -ExecutionPolicy Bypass -File scripts\build_release_zip.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\build_release_zip.ps1 -SkipBuild -SkipInstall -Measure
 
 param(
     [switch]$SkipBuild,
     [switch]$SkipInstall,
     [switch]$Measure,
-    [string]$Version = "5.0.0-rc1",
+    [string]$Version = "5.0.0",
     [string]$Label = "win64"
 )
 

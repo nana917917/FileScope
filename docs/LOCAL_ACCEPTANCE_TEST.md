@@ -3,9 +3,13 @@
 このテストは **あなたのPC（Tesseract・OneDrive/SharePoint・SMBがある環境）** で実施してください。
 Codex側の環境ではクラウドや実Tesseractを再現できないため、ここだけは手元での確認が必要です。
 
+> 履歴: このテストは `FileScope-v5.0.0-rc1-win64.zip` に対して実施され、全項目PASSしました。
+> 正式版の成果物名は `FileScope-v5.0.0-win64.zip` です（内容は同一のRC検証済みコード）。
+> 手順は再確認用として残しています。
+
 ## 準備（2分）
 
-1. `FileScope-v5.0.0-rc1-win64.zip` を任意のフォルダへ展開（例: `C:\Tools\FileScope`）
+1. `FileScope-v5.0.0-win64.zip` を任意のフォルダへ展開（例: `C:\Tools\FileScope`）
 2. `FileScope.exe` をダブルクリック
 3. 右上の「診断」ボタンを押し、`全部コピー` で結果を控える
 
