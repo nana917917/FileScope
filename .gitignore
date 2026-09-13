@@ -12,3 +12,10 @@ search_tool_settings*.json
 settings.json
 .DS_Store
 Thumbs.db
+build/
+dist/
+*.manifest
+# UI review evidence keeps the screenshots only; the generated corpus and
+# redirected LOCALAPPDATA used to produce them are disposable.
+artifacts/ui-review/workspace/
+artifacts/**/appdata/

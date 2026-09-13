@@ -1,0 +1,14 @@
+FileScope V5
+Copyright (c) FileScope project. All rights reserved.
+
+This is an internal-use tool distributed to the intended organization only.
+No license is granted for redistribution outside that organization.
+
+FileScope sends nothing to the network:
+  * no external AI/API calls
+  * no external OCR or search service
+  * no telemetry, no automatic update check
+Search terms, document text, OCR output and index contents stay on this PC.
+
+Third-party components are listed with their licenses in THIRD_PARTY_NOTICES.md.
+Tesseract OCR is NOT bundled: FileScope detects an existing installation.
