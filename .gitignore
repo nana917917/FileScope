@@ -19,3 +19,4 @@ dist/
 # redirected LOCALAPPDATA used to produce them are disposable.
 artifacts/ui-review/workspace/
 artifacts/**/appdata/
+artifacts/**/workspace/

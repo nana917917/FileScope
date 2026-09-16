@@ -158,6 +158,20 @@ class SearchSession:
             self.events.put(events.QueryFailed(message=exc.message, position=exc.position, query=self.config.query))
             self._finished.set()
             return
+        except Exception as exc:  # never leave the UI waiting on an unhandled error
+            log.exception("query preparation failed: %s", exc)
+            self._query_error = QuerySyntaxError(
+                f"検索式を準備できませんでした（{type(exc).__name__}）。条件を簡単にしてもう一度お試しください", 0
+            )
+            self.events.put(
+                events.QueryFailed(
+                    message=self._query_error.message,
+                    position=0,
+                    query=self.config.query,
+                )
+            )
+            self._finished.set()
+            return
 
         self.matcher = QueryMatcher(
             node,

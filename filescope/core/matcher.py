@@ -70,6 +70,8 @@ class TermPattern:
     norm: str
     part: str
     wildcard: re.Pattern[str] | None = None
+    #: Stable identity used by the per-chunk scan plan (see QueryMatcher).
+    pattern_id: int = 0
 
     def matches_text(self, haystack_norm: str, haystack_part: str) -> bool:
         if self.norm and self.norm in haystack_norm:
@@ -106,7 +108,14 @@ def compile_pattern(text: str, phrase: bool, options: MatchOptions) -> TermPatte
             wildcard = normalize.part_wildcard_regex(part)
         elif "*" in part:
             part = part.replace("*", "")
-    return TermPattern(text=text, phrase=phrase, norm=norm, part=part, wildcard=wildcard)
+    return TermPattern(
+        text=text,
+        phrase=phrase,
+        norm=norm,
+        part=part,
+        wildcard=wildcard,
+        pattern_id=id(norm) ^ id(text),
+    )
 
 
 def compact(node: Node) -> str:
@@ -142,6 +151,7 @@ class QueryMatcher:
         self._patterns: dict[str, TermPattern] = {}
         self._near_nodes: dict[int, Near] = {}
         self._collect(root)
+        self._build_scan_plan()
         self._negated_keys = {
             _term_key(term)
             for term in _terms_under_not(root)
@@ -166,6 +176,30 @@ class QueryMatcher:
 
     def pattern(self, term: Term) -> TermPattern:
         return self._patterns[_term_key(term)]
+
+    def _build_scan_plan(self) -> None:
+        """Group patterns by first character so a chunk can skip whole groups.
+
+        A term can only match if its first character occurs in the text, and a
+        typical cell or line contains a small character set, so most groups are
+        dismissed before any per-term work happens. This is pure speed: the
+        matching result is identical to testing every pattern.
+        """
+        buckets: dict[str, list[TermPattern]] = {}
+        wildcards: list[TermPattern] = []
+        multi_bucket: set[int] = set()
+        for pattern in self._patterns.values():
+            if pattern.wildcard is not None:
+                wildcards.append(pattern)
+                continue
+            firsts = {value[0] for value in (pattern.norm, pattern.part) if value}
+            if len(firsts) > 1:
+                multi_bucket.add(pattern.pattern_id)
+            for first in firsts:
+                buckets.setdefault(first, []).append(pattern)
+        self._buckets = buckets
+        self._wildcards = wildcards
+        self._multi_bucket_ids = multi_bucket
 
     def term_texts(self) -> list[str]:
         seen: list[str] = []
@@ -277,6 +311,7 @@ class FileMatchState:
     hit_count: int = field(default=0, init=False)
     hit_count_exact: bool = field(default=True, init=False)
     units_scanned: int = field(default=0, init=False)
+    _evaluated_once: bool = field(default=False, init=False)
 
     # ------------------------------------------------------------- feeding
     def feed(self, chunk: Chunk) -> Outcome:
@@ -296,23 +331,62 @@ class FileMatchState:
             else ""
         )
 
+        # Queries that must read to EOF keep exact occurrence counts; JIT
+        # queries only need "this term was seen", so already-found terms are not
+        # scanned again (their count is already reported as a lower bound).
+        rescan_found = self.matcher.requires_eof
+        changed = False
         matched_here = False
-        for term, pattern in self._iter_terms():
+        seen_here: set[int] | None = None
+        char_set = set(hay_norm)
+        if hay_part:
+            char_set |= set(hay_part)
+
+        for first, bucket in self.matcher._buckets.items():
+            if first not in char_set:
+                continue
+            for pattern in bucket:
+                if pattern.pattern_id in self.matcher._multi_bucket_ids:
+                    if seen_here is None:
+                        seen_here = set()
+                    elif pattern.pattern_id in seen_here:
+                        continue
+                    seen_here.add(pattern.pattern_id)
+                key = pattern.key()
+                if not rescan_found and key in self._present:
+                    continue
+                if not pattern.matches_text(hay_norm, hay_part):
+                    continue
+                if key not in self._present:
+                    self._present.add(key)
+                    changed = True
+                if key in self.matcher._negated_keys:
+                    # Negated terms decide acceptance; they are not part of the
+                    # hit count or the evidence list.
+                    continue
+                matched_here = True
+                occurrences = pattern.count(hay_norm, hay_part) or 1
+                self.hit_count += occurrences
+                if chunk.kind is ChunkKind.NAME:
+                    self._name_hit = True
+                elif chunk.kind is ChunkKind.PATH:
+                    self._path_hit = True
+                self._record_evidence(pattern, chunk, text)
+
+        for pattern in self.matcher._wildcards:
+            key = pattern.key()
+            if not rescan_found and key in self._present:
+                continue
             if not pattern.matches_text(hay_norm, hay_part):
                 continue
-            self._present.add(pattern.key())
-            if pattern.key() in self.matcher._negated_keys:
-                # Negated terms decide acceptance; they are not part of the
-                # hit count or the evidence list.
+            if key not in self._present:
+                self._present.add(key)
+                changed = True
+            if key in self.matcher._negated_keys:
                 continue
             matched_here = True
-            occurrences = pattern.count(hay_norm, hay_part) or 1
-            self.hit_count += occurrences
-            if chunk.kind is ChunkKind.NAME:
-                self._name_hit = True
-            elif chunk.kind is ChunkKind.PATH:
-                self._path_hit = True
-            self._record_evidence(term, pattern, chunk, text)
+            self.hit_count += pattern.count(hay_norm, hay_part) or 1
+            self._record_evidence(pattern, chunk, text)
 
         if chunk.kind is ChunkKind.OCR and (matched_here or not self.matcher.positive_terms):
             # OCR provenance is tracked even for pure-metadata queries such as
@@ -324,11 +398,17 @@ class FileMatchState:
                 continue
             if self._near_matches(near, hay_norm, hay_part):
                 self._satisfied_near.add(id(near))
+                changed = True
                 terms = [t.text for t in (near.left, near.right) if isinstance(t, Term)]
                 self._record_label_evidence(compact(near), chunk, text, terms)
 
         if self.matcher.requires_eof:
             return Outcome.PENDING
+        # Nothing new was learned, so the previous decision (PENDING) stands and
+        # the whole AST does not need to be walked again for this chunk.
+        if not changed and self._evaluated_once:
+            return Outcome.PENDING
+        self._evaluated_once = True
         if self._evaluate(self.matcher.root):
             return Outcome.ACCEPT
         if not self._can_still_match(self.matcher.root):
@@ -340,23 +420,18 @@ class FileMatchState:
             return Outcome.ACCEPT
         return Outcome.ACCEPT if self._evaluate(self.matcher.root) else Outcome.REJECT
 
-    def _iter_terms(self):
-        for node in _iter_nodes(self.matcher.root):
-            if isinstance(node, Term):
-                yield node, self.matcher.pattern(node)
-
-    def _record_evidence(self, term: Term, pattern: TermPattern, chunk: Chunk, text: str) -> None:
+    def _record_evidence(self, pattern: TermPattern, chunk: Chunk, text: str) -> None:
         bucket = self._evidence.setdefault(pattern.key(), [])
         if len(bucket) >= self.matcher.options.max_evidence_per_term:
             return
         bucket.append(
             Evidence(
-                term=term.text,
+                term=pattern.text,
                 location=location_label(chunk),
                 kind=chunk.kind,
                 snippet=normalize.snippet(
                     text,
-                    [term.text],
+                    [pattern.text],
                     ignore_width=self.matcher.options.ignore_width,
                     case_sensitive=self.matcher.options.case_sensitive,
                 ),
