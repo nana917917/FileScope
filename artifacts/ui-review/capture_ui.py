@@ -10,6 +10,7 @@ LOCALAPPDATA, drives a search, and writes PNGs plus a timing file.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import ctypes
 import json
 import os
@@ -145,6 +146,28 @@ def main(argv: list[str] | None = None) -> int:
         window.tree.selection_set(rows[0])
         pump(root, 1.4)
         shots.append(str(capture(root, out / f"{args.prefix}-04-preview.png")))
+
+    # PDF page image view (v5.1): pick the PDF row and switch to 画像.
+    pdf_row = None
+    for row_id in window.tree.get_children():
+        row = window.model.row_at(int(row_id))
+        if row is not None and row.result.file_kind.value == "PDF":
+            pdf_row = row_id
+            break
+    if pdf_row is not None:
+        window.tree.selection_set(pdf_row)
+        pump(root, 1.6)
+        with contextlib.suppress(Exception):
+            window.preview.set_view("image")
+            pump(root, 2.5)
+        shots.append(str(capture(root, out / f"{args.prefix}-04b-pdf-page.png")))
+        with contextlib.suppress(Exception):
+            window.preview.change_zoom(1)
+            pump(root, 2.0)
+        shots.append(str(capture(root, out / f"{args.prefix}-04c-pdf-zoom.png")))
+        with contextlib.suppress(Exception):
+            window.preview.set_view("text")
+            pump(root, 0.4)
 
     for label, geometry in VIEW_SIZES:
         root.geometry(geometry)

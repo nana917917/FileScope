@@ -63,7 +63,8 @@ class MainWindow(ttk.Frame):
         self.session: SearchSession | None = None
         self.database: IndexDatabase | None = None
         self.ocr_cache = OcrCache()
-        self._coverage_text = tk.StringVar(value="待機中")
+        self._coverage_text = tk.StringVar(value="")
+        self._result_count_text = tk.StringVar(value="")
         self._status_text = tk.StringVar(value="")
         self._progress_text = tk.StringVar(value="")
         self._index_text = tk.StringVar(value="")
@@ -71,6 +72,15 @@ class MainWindow(ttk.Frame):
         self._issue_rows = 0
         self._window_start = 0
         self._full_scan_queue: queue.Queue = queue.Queue()
+        # One font family for the whole window (Windows UI font); only the query
+        # field is one point larger than the body text.
+        import tkinter.font as tkfont
+
+        base = tkfont.nametofont("TkDefaultFont")
+        family = base.actual("family")
+        self.body_font = (family, 9)
+        self.body_bold = (family, 9, "bold")
+        self.query_font = (family, 10)
 
         self.pack(fill="both", expand=True)
         self._build_menu()
@@ -109,37 +119,51 @@ class MainWindow(ttk.Frame):
         self.master.configure(menu=menu)
 
     def _build_form(self) -> None:
-        form = ttk.Frame(self, padding=(8, 6, 8, 4))
+        """Search form.
+
+        Laid out with grid weights so the folder and query fields always use the
+        full window width: the inputs stretch, the buttons keep a fixed size.
+        """
+        form = ttk.Frame(self, padding=(8, 6, 8, 2))
         form.pack(fill="x")
         form.columnconfigure(1, weight=1)
-        form.columnconfigure(3, weight=1)
 
-        ttk.Label(form, text="検索場所").grid(row=0, column=0, sticky="w", padx=(0, 4))
+        ttk.Label(form, text="検索場所").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.root_var = tk.StringVar(value=self.state.root)
         self.root_combo = ttk.Combobox(form, textvariable=self.root_var, values=self.settings.recent_roots)
-        self.root_combo.grid(row=0, column=1, columnspan=2, sticky="ew")
-        ttk.Button(form, text="参照", width=6, command=self.choose_root).grid(row=0, column=3, sticky="e")
+        self.root_combo.grid(row=0, column=1, sticky="ew")
+        folder_buttons = ttk.Frame(form)
+        folder_buttons.grid(row=0, column=2, sticky="e", padx=(6, 0))
+        ttk.Button(folder_buttons, text="参照", width=6, command=self.choose_root).pack(side="left")
+        ttk.Button(folder_buttons, text="＋追加", width=7, command=self.add_root).pack(side="left", padx=3)
+        ttk.Button(folder_buttons, text="一覧", width=6, command=self.open_folders).pack(side="left")
 
-        ttk.Label(form, text="検索").grid(row=1, column=0, sticky="w", padx=(0, 4), pady=(4, 0))
+        ttk.Label(form, text="検索文字").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
         self.query_var = tk.StringVar(value=self.state.query)
-        query_entry = ttk.Entry(form, textvariable=self.query_var, font=("Consolas", 11))
-        query_entry.grid(row=1, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+        query_entry = ttk.Entry(form, textvariable=self.query_var, font=self.query_font)
+        query_entry.grid(row=1, column=1, sticky="ew", pady=(4, 0))
         query_entry.bind("<Return>", lambda _event: self.start_search())
         self.query_entry = query_entry
-        ttk.Button(form, text="検索", command=self.start_search).grid(row=1, column=3, sticky="e", pady=(4, 0))
+        self.search_button = ttk.Button(form, text="検索開始", command=self.start_search, width=10)
+        self.search_button.grid(row=1, column=2, sticky="e", padx=(6, 0), pady=(4, 0))
 
-        ttk.Label(form, text="除外").grid(row=2, column=0, sticky="w", padx=(0, 4), pady=(4, 0))
+        ttk.Label(form, text="除外（この語を含む資料は除く）").grid(
+            row=2, column=0, sticky="w", padx=(0, 6), pady=(4, 0)
+        )
         self.exclude_var = tk.StringVar(value=self.state.exclude_query)
-        ttk.Entry(form, textvariable=self.exclude_var).grid(row=2, column=1, columnspan=2, sticky="ew", pady=(4, 0))
-        ttk.Label(form, text="（空白区切り・!語／-語と同じ）", foreground="#666").grid(
-            row=2, column=3, sticky="w", pady=(4, 0)
+        ttk.Entry(form, textvariable=self.exclude_var, font=self.body_font).grid(
+            row=2, column=1, sticky="ew", pady=(4, 0)
+        )
+        ttk.Label(form, text="カンマ区切りも可", foreground="#666").grid(
+            row=2, column=2, sticky="w", padx=(6, 0), pady=(4, 0)
         )
 
-        row = ttk.Frame(self, padding=(8, 0, 8, 4))
-        row.pack(fill="x")
+        mode_row = ttk.Frame(self, padding=(8, 2, 8, 0))
+        mode_row.pack(fill="x")
         self.mode_var = tk.StringVar(value=self.state.mode)
-        mode_frame = ttk.LabelFrame(row, text="検索モード", padding=(6, 2))
+        mode_frame = ttk.Frame(mode_row)
         mode_frame.pack(side="left")
+        ttk.Label(mode_frame, text="検索モード", font=self.body_bold).pack(side="left", padx=(0, 6))
         for mode in ("fast", "standard", "full"):
             ttk.Radiobutton(
                 mode_frame,
@@ -147,11 +171,11 @@ class MainWindow(ttk.Frame):
                 value=mode,
                 variable=self.mode_var,
                 command=self._update_mode_hint,
-            ).pack(side="left", padx=3)
-        self.mode_hint = ttk.Label(row, text=MODE_DESCRIPTIONS[self.state.mode], foreground="#555", wraplength=520)
-        self.mode_hint.pack(side="left", padx=10)
+            ).pack(side="left", padx=(0, 6))
+        self.mode_hint = ttk.Label(mode_row, text=MODE_DESCRIPTIONS[self.state.mode], foreground="#555")
+        self.mode_hint.pack(side="left", padx=12)
 
-        exact = ttk.Frame(self, padding=(8, 0, 8, 4))
+        exact = ttk.Frame(self, padding=(8, 2, 8, 2))
         exact.pack(fill="x")
         self.kind_vars = {
             "excel": tk.BooleanVar(value=self.state.include_excel),
@@ -161,36 +185,44 @@ class MainWindow(ttk.Frame):
             "text": tk.BooleanVar(value=self.state.include_text),
             "unknown": tk.BooleanVar(value=self.state.include_unknown_text),
         }
-        for key, label in (("excel", "Excel"), ("pdf", "PDF"), ("word", "Word"), ("ppt", "PPT"), ("text", "Text")):
+        ttk.Label(exact, text="検索対象", font=self.body_bold).pack(side="left", padx=(0, 4))
+        for key, label in (
+            ("excel", "Excel"),
+            ("pdf", "PDF"),
+            ("word", "Word"),
+            ("ppt", "PPT"),
+            ("text", "Text"),
+            ("unknown", "未知形式"),
+        ):
             ttk.Checkbutton(exact, text=label, variable=self.kind_vars[key]).pack(side="left", padx=2)
-        ttk.Checkbutton(exact, text="未知形式", variable=self.kind_vars["unknown"]).pack(side="left", padx=2)
-        ttk.Button(exact, text="条件", command=self.open_condition_builder).pack(side="left", padx=(12, 2))
-        ttk.Button(exact, text="詳細設定", command=self.open_settings).pack(side="left", padx=2)
-        ttk.Button(exact, text="索引", command=self.open_index_status).pack(side="left", padx=2)
-        ttk.Button(exact, text="診断", command=self.open_diagnostics).pack(side="left", padx=2)
+        ttk.Button(exact, text="条件…", width=7, command=self.open_condition_builder).pack(side="left", padx=(10, 2))
+        ttk.Button(exact, text="詳細設定…", width=10, command=self.open_settings).pack(side="left", padx=2)
+        ttk.Button(exact, text="索引…", width=7, command=self.open_index_status).pack(side="left", padx=2)
+        ttk.Button(exact, text="診断…", width=7, command=self.open_diagnostics).pack(side="left", padx=2)
 
-        actions = ttk.Frame(self, padding=(8, 0, 8, 4))
+        actions = ttk.Frame(self, padding=(8, 0, 8, 2))
         actions.pack(fill="x")
-        self.search_button = ttk.Button(actions, text="検索開始", command=self.start_search)
-        self.search_button.pack(side="left")
-        self.cancel_button = ttk.Button(actions, text="中断", command=self.cancel_search, state="disabled")
-        self.cancel_button.pack(side="left", padx=4)
-        self.pause_button = ttk.Button(actions, text="一時停止", command=self.toggle_pause, state="disabled")
-        self.pause_button.pack(side="left", padx=4)
-        ttk.Button(actions, text="プリセット", command=self.open_presets).pack(side="left", padx=(12, 2))
-        ttk.Button(actions, text="履歴", command=self.open_history).pack(side="left", padx=2)
-        ttk.Button(actions, text="CSV保存", command=self.export_csv).pack(side="right")
-        ttk.Label(actions, textvariable=self._index_text, foreground="#555").pack(side="right", padx=10)
-        ocr_text = (
-            f"OCR: {self.ocr_status.language_expression or '利用可'}"
-            if self.ocr_status.ready
-            else "OCR: 未導入（診断）"
+        self.cancel_button = ttk.Button(actions, text="中断", width=7, command=self.cancel_search, state="disabled")
+        self.cancel_button.pack(side="left", padx=(0, 4))
+        self.pause_button = ttk.Button(
+            actions, text="一時停止", width=8, command=self.toggle_pause, state="disabled"
         )
+        self.pause_button.pack(side="left", padx=4)
+        ttk.Button(actions, text="プリセット", width=10, command=self.open_presets).pack(side="left", padx=(10, 2))
+        ttk.Button(actions, text="履歴", width=7, command=self.open_history).pack(side="left", padx=2)
+        ttk.Button(actions, text="CSV保存", width=9, command=self.export_csv).pack(side="right")
         self.ocr_label = ttk.Label(
-            actions, text=ocr_text, foreground="#555" if self.ocr_status.ready else "#8a6d3b"
+            actions,
+            text=(
+                f"OCR: {self.ocr_status.language_expression or '利用可'}"
+                if self.ocr_status.ready
+                else "OCR: 未導入（クリックで診断）"
+            ),
+            foreground="#555" if self.ocr_status.ready else "#8a6d3b",
         )
         self.ocr_label.pack(side="right", padx=10)
         self.ocr_label.bind("<Button-1>", lambda _e: self.open_diagnostics())
+        ttk.Label(actions, textvariable=self._index_text, foreground="#555").pack(side="right", padx=6)
 
     def _build_body(self) -> None:
         body = ttk.Panedwindow(self, orient="horizontal")
@@ -211,6 +243,7 @@ class MainWindow(ttk.Frame):
         entry.bind("<Return>", lambda _event: self.apply_refine())
         ttk.Button(refine, text="適用", command=self.apply_refine).pack(side="left")
         ttk.Button(refine, text="解除", command=self.clear_refine).pack(side="left", padx=4)
+        ttk.Label(refine, textvariable=self._result_count_text, foreground="#555").pack(side="left", padx=6)
 
         self.facet_frame = ttk.LabelFrame(left, text="絞り込み（クリックで適用）", padding=4)
         self.facet_frame.pack(fill="x", pady=(0, 4))
@@ -291,12 +324,19 @@ class MainWindow(ttk.Frame):
         self.after(60, lambda: self._place_sash(force=False))
 
     def _build_status(self) -> None:
+        """Progress bar + counters + the two status lines (v5.1 spec sections 11-12)."""
         bar = ttk.Frame(self, padding=(8, 2, 8, 6))
         bar.pack(fill="x")
-        ttk.Label(bar, textvariable=self._coverage_text).pack(side="left")
-        ttk.Label(bar, textvariable=self._progress_text, foreground="#555").pack(side="left", padx=12)
+        self.progress_bar = ttk.Progressbar(bar, mode="indeterminate", length=180)
+        self.progress_bar.pack(side="left")
+        ttk.Label(bar, textvariable=self._progress_text).pack(side="left", padx=10)
         ttk.Label(bar, textvariable=self._status_text, foreground="#555").pack(side="right")
         ttk.Label(bar, text="外部送信なし / ローカル処理", foreground="#777").pack(side="right", padx=12)
+        # Coverage answers "did it look at everything?" and stays on its own
+        # line so it never competes with the progress line above.
+        ttk.Label(self, textvariable=self._coverage_text, foreground="#555", padding=(8, 0, 8, 4)).pack(
+            anchor="w"
+        )
 
     def _bind_keys(self) -> None:
         self.master.bind("<Control-l>", lambda _e: self.query_entry.focus_set())
@@ -352,6 +392,8 @@ class MainWindow(ttk.Frame):
         self._render_results()
         self.preview.clear()
         self._status_text.set("")
+        self._start_progress()
+        self.search_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         self.pause_button.configure(state="normal", text="一時停止")
 
@@ -408,17 +450,15 @@ class MainWindow(ttk.Frame):
                 elif isinstance(event, events.IssueAdded):
                     self._add_issue(event.issue)
                 elif isinstance(event, events.Progressed):
-                    self._progress_text.set(
-                        f"列挙 {event.progress.discovered:,} / 処理 {event.progress.scanned:,}"
-                        f" / Hit {event.progress.hit_files:,}資料"
-                    )
+                    self._apply_progress(event.progress)
                 elif isinstance(event, events.CoverageChanged):
                     self._coverage_text.set(event.coverage.line())
                 elif isinstance(event, events.QueryFailed):
                     messagebox.showerror("検索式エラー", event.message)
+                    self._finish_buttons()
                     self._status_text.set(f"検索式エラー: {event.message}")
-                    self.cancel_button.configure(state="disabled")
-                    self.pause_button.configure(state="disabled")
+                    self.query_entry.focus_set()
+                    self.query_entry.selection_range(0, "end")
                 elif isinstance(event, events.Finished):
                     self._on_finished(event.summary)
                     needs_render = True
@@ -430,10 +470,10 @@ class MainWindow(ttk.Frame):
         self._drain_job = self.after(DRAIN_MS, self._drain_events)
 
     def _on_finished(self, summary) -> None:
-        self.cancel_button.configure(state="disabled")
-        self.pause_button.configure(state="disabled", text="一時停止")
+        self._finish_buttons()
+        self._stop_progress()
         self._coverage_text.set(summary.coverage.line())
-        self._progress_text.set("")
+        self._progress_text.set(summary.coverage.summary_line())
         elapsed = summary.elapsed
         status = (
             f"完了: {len(summary.results):,}資料 / {summary.total_hits:,}件一致 / {elapsed:.1f}秒"
@@ -448,6 +488,42 @@ class MainWindow(ttk.Frame):
                 status += f" / 自動保存: {path}"
         self._status_text.set(status)
         self._update_index_label()
+
+    # ----------------------------------------------------------- progress
+    def _start_progress(self) -> None:
+        """Indeterminate until the total file count is known (no fake percent)."""
+        with suppress(tk.TclError):
+            self.progress_bar.stop()
+            self.progress_bar.configure(mode="indeterminate", maximum=100, value=0)
+            self.progress_bar.start(60)
+
+    def _stop_progress(self) -> None:
+        with suppress(tk.TclError):
+            self.progress_bar.stop()
+            self.progress_bar.configure(mode="determinate", value=0)
+
+    def _apply_progress(self, progress) -> None:
+        self._progress_text.set(progress.line())
+        with suppress(tk.TclError):
+            fraction = progress.fraction
+            if fraction is None:
+                if self.progress_bar.cget("mode") != "indeterminate":
+                    self.progress_bar.stop()
+                    self.progress_bar.configure(mode="indeterminate")
+                    self.progress_bar.start(60)
+                return
+            self.progress_bar.stop()
+            if self.progress_bar.cget("mode") != "determinate":
+                self.progress_bar.configure(mode="determinate", maximum=100)
+            self.progress_bar.configure(value=fraction * 100)
+
+    def _finish_buttons(self) -> None:
+        self.search_button.configure(state="normal")
+        self.cancel_button.configure(state="disabled")
+        self.pause_button.configure(state="disabled", text="一時停止")
+
+    def _set_status(self, message: str) -> None:
+        self._status_text.set(message)
 
     def _add_issue(self, issue) -> None:
         if self._issue_rows >= MAX_ISSUE_ROWS:
@@ -493,15 +569,12 @@ class MainWindow(ttk.Frame):
         self._status_count()
 
     def _status_count(self) -> None:
-        if self.session is None or self.session.finished:
-            self._progress_text.set("")
-            return
         total = len(self.model.all_rows)
         shown = len(self.model.visible)
         if shown == total:
-            self._progress_text.set(f"{total:,}資料")
+            self._result_count_text.set(f"{total:,}資料")
         else:
-            self._progress_text.set(f"{shown:,} / {total:,}資料（絞り込み中）")
+            self._result_count_text.set(f"{shown:,} / {total:,}資料（絞り込み中）")
 
     def _fill_window(self, start: int) -> None:
         total = len(self.model.visible)
@@ -854,6 +927,37 @@ class MainWindow(ttk.Frame):
             self._sync_state()
             self.settings.remember_root(chosen)
             self.root_combo.configure(values=self.settings.recent_roots)
+            self._set_status(f"検索場所を設定しました: {chosen}")
+
+    def add_root(self) -> None:
+        """Append another folder to the search location (V4 multi-folder search)."""
+        current = self.state.roots() if self.state.root else ()
+        initial = current[0] if current else os.path.expanduser("~")
+        chosen = filedialog.askdirectory(initialdir=initial, title="検索場所に追加するフォルダ")
+        if not chosen:
+            return
+        chosen = os.path.normpath(chosen)
+        existing = {os.path.normcase(path) for path in current}
+        if os.path.normcase(chosen) in existing:
+            self._set_status("すでに追加されています")
+            return
+        self.root_var.set("; ".join([*current, chosen]))
+        self._sync_state()
+        self.settings.remember_root(chosen)
+        self.root_combo.configure(values=self.settings.recent_roots)
+        self._set_status(f"検索場所を追加しました（{len(current) + 1}フォルダ）")
+
+    def open_folders(self) -> None:
+        dialog = dialogs.FoldersDialog(self.master, roots=list(self.state.roots()))
+        roots = dialog.show()
+        if roots is None:
+            return
+        self.root_var.set("; ".join(roots))
+        self._sync_state()
+        for root in roots:
+            self.settings.remember_root(root)
+        self.root_combo.configure(values=self.settings.recent_roots)
+        self._set_status(f"検索場所: {len(roots)}フォルダ")
 
     def open_condition_builder(self) -> None:
         dialog = dialogs.ConditionBuilderDialog(

@@ -3,8 +3,9 @@ presets/history and the shortcut list."""
 
 from __future__ import annotations
 
+import os
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import ClassVar
 
 from .. import diagnostics, paths
@@ -67,7 +68,7 @@ class ConditionBuilderDialog(Dialog):
     TYPE_EXTENSIONS: ClassVar[dict[str, tuple[str, ...]]] = TYPE_EXTENSION_MAP
 
     def __init__(self, parent, *, initial: str = "", legacy_operator: str = "OR") -> None:
-        super().__init__(parent, "条件を作る", width=820, height=610)
+        super().__init__(parent, "条件を作る", width=900, height=620)
         self.legacy_operator = legacy_operator
         groups = BuilderGroups()
         self._metadata_rest: list[str] = []
@@ -93,7 +94,7 @@ class ConditionBuilderDialog(Dialog):
         left = ttk.Frame(columns)
         left.pack(side="left", fill="both", expand=True, padx=(0, 10))
         right = ttk.Frame(columns)
-        right.pack(side="left", fill="both", expand=True)
+        right.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
         self.all_of = self._multiline(
             left, "すべて含む", "入れた言葉が全部ある資料（例: 電源 / ノイズ）", 4
@@ -111,9 +112,10 @@ class ConditionBuilderDialog(Dialog):
         count_row.pack(fill="x")
         ttk.Label(count_row, text="候補のうち").pack(side="left")
         self.count_var = tk.StringVar(value=str(groups.n_of_count or 2))
-        ttk.Spinbox(count_row, from_=1, to=20, width=4, textvariable=self.count_var).pack(side="left", padx=4)
-        ttk.Label(count_row, text="個以上あればヒット（例: 3つ中2つ）").pack(side="left")
-        self.n_of = tk.Text(n_frame, height=3, wrap="word")
+        ttk.Spinbox(count_row, from_=1, to=20, width=3, textvariable=self.count_var).pack(side="left", padx=4)
+        ttk.Label(count_row, text="個以上").pack(side="left")
+        ttk.Label(n_frame, text="例: 3つ中2つ以上あればヒット", foreground="#666").pack(anchor="w")
+        self.n_of = tk.Text(n_frame, height=3, width=24, wrap="word")
         self.n_of.pack(fill="x", pady=(4, 0))
 
         self.phrase = self._entry(right, "完全一致", "入力した並びで探す（例: 耐久 試験）")
@@ -122,15 +124,15 @@ class ConditionBuilderDialog(Dialog):
         near_frame.pack(fill="x", pady=(6, 0))
         near_row = ttk.Frame(near_frame)
         near_row.pack(fill="x")
-        self.near_a = ttk.Entry(near_row, width=14)
+        self.near_a = ttk.Entry(near_row, width=10)
         self.near_a.pack(side="left")
         ttk.Label(near_row, text="と").pack(side="left", padx=3)
-        self.near_b = ttk.Entry(near_row, width=14)
+        self.near_b = ttk.Entry(near_row, width=10)
         self.near_b.pack(side="left")
-        self.near_distance = ttk.Entry(near_row, width=6)
+        self.near_distance = ttk.Entry(near_row, width=4)
         self.near_distance.pack(side="left", padx=(6, 2))
         ttk.Label(near_row, text="文字以内").pack(side="left")
-        ttk.Label(near_frame, text="同じセル・同じページ内で近くにある資料").pack(anchor="w")
+        ttk.Label(near_frame, text="同じセル・ページ内で近くにある資料", foreground="#666").pack(anchor="w")
 
         self._build_file_conditions(body, groups)
         self._build_advanced(body, groups)
@@ -160,7 +162,9 @@ class ConditionBuilderDialog(Dialog):
     # ----------------------------------------------------------- widgets
     def _multiline(self, parent, label: str, hint: str, height: int) -> tk.Text:
         ttk.Label(parent, text=label, font=("", 9, "bold")).pack(anchor="w", pady=(6, 0))
-        widget = tk.Text(parent, height=height, wrap="word")
+        # An explicit small width keeps the requested size down so both columns
+        # stay inside the dialog; the widget stretches with fill="x" anyway.
+        widget = tk.Text(parent, height=height, width=28, wrap="word")
         widget.pack(fill="x")
         ttk.Label(parent, text=hint, foreground="#666").pack(anchor="w")
         return widget
@@ -173,7 +177,7 @@ class ConditionBuilderDialog(Dialog):
         return entry
 
     def _build_file_conditions(self, parent, groups: BuilderGroups) -> None:
-        self.file_frame = ttk.LabelFrame(parent, text="ファイル条件（任意・折りたたみ可）", padding=6)
+        self.file_frame = ttk.LabelFrame(parent, text="ファイル条件（任意）", padding=6)
         self.file_frame.pack(fill="x", pady=(8, 0))
         toggle = ttk.Button(
             self.file_frame, text="▼ 表示中", width=10, command=self._toggle_file_conditions
@@ -233,7 +237,7 @@ class ConditionBuilderDialog(Dialog):
             variable.trace_add("write", lambda *_a: self._preview())
 
     def _build_advanced(self, parent, groups: BuilderGroups) -> None:
-        self.advanced_frame = ttk.LabelFrame(parent, text="詳細式（上級者向け・折りたたみ）", padding=6)
+        self.advanced_frame = ttk.LabelFrame(parent, text="詳細式（上級者向け）", padding=6)
         self.advanced_frame.pack(fill="x", pady=(6, 0))
         self._advanced_toggle = ttk.Button(
             self.advanced_frame, text="▶ 開く", width=10, command=self._toggle_advanced
@@ -245,7 +249,7 @@ class ConditionBuilderDialog(Dialog):
             text="ここに書いた式はそのまま検索式として使われます（上の欄と AND で結合）。",
             foreground="#666",
         ).pack(anchor="w")
-        self.advanced = tk.Text(self.advanced_body, height=2, wrap="word")
+        self.advanced = tk.Text(self.advanced_body, height=2, width=40, wrap="word")
         self.advanced.pack(fill="x")
         self._advanced_open = False
         if groups.advanced:
@@ -434,6 +438,87 @@ def _human_size(value: str) -> str:
         if size and size % factor == 0:
             return f"{size // factor}{unit}"
     return str(size)
+
+
+class FoldersDialog(Dialog):
+    """View / add / remove the search folders (v5.1 spec section 7)."""
+
+    def __init__(self, parent, *, roots: list[str]) -> None:
+        super().__init__(parent, "検索場所", width=620, height=360)
+        self.roots = list(roots)
+        body = ttk.Frame(self, padding=10)
+        body.pack(fill="both", expand=True)
+        ttk.Label(
+            body, text="検索するフォルダです。複数指定すると、まとめて検索します。"
+        ).pack(anchor="w")
+        list_frame = ttk.Frame(body)
+        list_frame.pack(fill="both", expand=True, pady=6)
+        self.listbox = tk.Listbox(list_frame, height=8, activestyle="dotbox")
+        scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=scroll.set)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(body, textvariable=self.status_var, foreground="#8a6d3b").pack(anchor="w")
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", pady=(4, 0))
+        ttk.Button(buttons, text="追加…", command=self._add).pack(side="left")
+        ttk.Button(buttons, text="削除", command=self._remove).pack(side="left", padx=4)
+        ttk.Button(buttons, text="上へ", command=lambda: self._move(-1)).pack(side="left", padx=4)
+        ttk.Button(buttons, text="下へ", command=lambda: self._move(1)).pack(side="left")
+        ttk.Button(buttons, text="OK", command=self._accept).pack(side="right")
+        ttk.Button(buttons, text="キャンセル", command=self._cancel).pack(side="right", padx=4)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        self.listbox.delete(0, "end")
+        missing = 0
+        for index, root in enumerate(self.roots):
+            exists = os.path.isdir(root)
+            if not exists:
+                missing += 1
+            label = root if exists else f"{root}   （見つかりません）"
+            self.listbox.insert("end", label)
+            if not exists:
+                self.listbox.itemconfigure(index, foreground="#a94442")
+        if missing:
+            self.status_var.set(f"{missing}件のフォルダが見つかりません（UNCやネットワーク未接続の可能性）")
+        else:
+            self.status_var.set("")
+
+    def _add(self) -> None:
+        initial = self.roots[-1] if self.roots else os.path.expanduser("~")
+        chosen = filedialog.askdirectory(initialdir=initial, title="検索場所に追加")
+        if not chosen:
+            return
+        chosen = os.path.normpath(chosen)
+        if any(os.path.normcase(root) == os.path.normcase(chosen) for root in self.roots):
+            self.status_var.set("すでに追加されています")
+            return
+        self.roots.append(chosen)
+        self._refresh()
+
+    def _remove(self) -> None:
+        selection = list(self.listbox.curselection())
+        for index in reversed(selection):
+            del self.roots[index]
+        self._refresh()
+
+    def _move(self, delta: int) -> None:
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        target = index + delta
+        if not 0 <= target < len(self.roots):
+            return
+        self.roots[index], self.roots[target] = self.roots[target], self.roots[index]
+        self._refresh()
+        self.listbox.selection_set(target)
+
+    def _accept(self) -> None:
+        self._close([root for root in self.roots if root])
 
 
 class AdvancedSettingsDialog(Dialog):

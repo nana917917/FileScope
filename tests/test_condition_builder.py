@@ -131,22 +131,13 @@ class TestBuilderRoundTrip:
         assert equivalent(parse_query(to_query_string(rebuilt)), original), query
 
     @pytest.mark.parametrize("query", CASES)
-    def test_dialog_round_trip(self, query) -> None:
+    def test_dialog_round_trip(self, tk_session_root, query) -> None:
         """Opening the dialog with a query and pressing OK must not change it."""
-        tk = pytest.importorskip("tkinter")
-        try:
-            root = tk.Tk()
-        except tk.TclError:  # pragma: no cover - headless
-            pytest.skip("Tk display unavailable")
-        root.withdraw()
         from filescope.ui.dialogs import ConditionBuilderDialog
 
-        try:
-            dialog = ConditionBuilderDialog(root, initial=query)
-            produced, error = dialog._build_query()
-            dialog.window.destroy()
-        finally:
-            root.destroy()
+        dialog = ConditionBuilderDialog(tk_session_root, initial=query)
+        produced, error = dialog._build_query()
+        dialog.window.destroy()
         assert error == ""
         assert equivalent(parse_query(produced), parse_query(query)), f"{query} -> {produced}"
 

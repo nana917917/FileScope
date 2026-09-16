@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -46,27 +45,21 @@ def _ensure(base: Path, name: str) -> Path:
     return target
 
 
-@pytest.fixture(scope="module")
-def tk_session_root():
-    """One Tk root for the whole module (creating several roots is flaky)."""
-    try:
-        root = tk.Tk()
-    except tk.TclError:  # pragma: no cover - headless
-        pytest.skip("Tk display unavailable")
-    root.withdraw()
-    yield root
+
+def shutdown(window) -> None:
+    """Close a test window without destroying the session-shared Tk root."""
+    from contextlib import suppress
+
+    if window.session is not None and not window.session.finished:
+        window.session.cancel()
+        window.session.wait(5)
+    with suppress(Exception):
+        window.ocr_cache.close()
+    if window.database is not None:
+        with suppress(Exception):
+            window.database.close()
     with suppress(tk.TclError):
-        root.destroy()
-
-
-@pytest.fixture
-def tk_root(tk_session_root):
-    for child in tk_session_root.winfo_children():
-        child.destroy()
-    yield tk_session_root
-    tk_session_root.update()
-    for child in tk_session_root.winfo_children():
-        child.destroy()
+        window.destroy()
 
 
 def pump(root, seconds: float) -> None:
@@ -186,6 +179,95 @@ class TestExports:
 
 
 class TestAcceptance:
+    def test_multiple_search_folders(self, tk_root, tmp_path, isolated_paths) -> None:
+        first = tmp_path / "one"
+        second = tmp_path / "two"
+        first.mkdir()
+        second.mkdir()
+        (first / "a.txt").write_text("AAA\n", encoding="utf-8")
+        (second / "b.txt").write_text("AAA\n", encoding="utf-8")
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(f"{first}; {second}")
+        window._sync_state()
+        assert window.state.roots() == (str(first), str(second))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        assert {row.result.name for row in window.model.all_rows} == {"a.txt", "b.txt"}
+
+    def test_folders_dialog_deduplicates(self, tk_root, tmp_path) -> None:
+        from filescope.ui.dialogs import FoldersDialog
+
+        first = tmp_path / "x"
+        first.mkdir()
+        dialog = FoldersDialog(tk_root, roots=[str(first)])
+        dialog.roots.append(str(first))
+        dialog._refresh()
+        assert dialog.listbox.size() == 2
+        dialog._remove()
+        dialog.window.destroy()
+
+    def test_progress_bar_modes(self, tk_root, tmp_path, isolated_paths) -> None:
+        """Indeterminate while enumerating, determinate once the total is known."""
+        from filescope.core.models import Progress
+
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window._start_progress()
+        assert str(window.progress_bar.cget("mode")) == "indeterminate"
+        window._apply_progress(Progress(phase="検索しています", discovered=10, scanned=5, discovery_done=True, total_known=True))
+        assert str(window.progress_bar.cget("mode")) == "determinate"
+        assert float(str(window.progress_bar.cget("value"))) == 50.0
+        window._apply_progress(Progress(phase="フォルダを確認しています", discovered=3, scanned=1))
+        assert str(window.progress_bar.cget("mode")) == "indeterminate"
+        shutdown(window)
+        _ = isolated_paths
+
+    def test_search_button_state_during_and_after_search(self, tk_root, tmp_path, isolated_paths) -> None:
+        corpus = build_corpus(tmp_path / "state-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        assert str(window.search_button.cget("state")) == "normal"
+        window.start_search()
+        assert str(window.search_button.cget("state")) == "disabled"
+        assert str(window.cancel_button.cget("state")) == "normal"
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        assert str(window.search_button.cget("state")) == "normal"
+        assert str(window.cancel_button.cget("state")) == "disabled"
+
+    def test_query_error_restores_the_ui(self, tk_root, tmp_path, isolated_paths) -> None:
+        corpus = build_corpus(tmp_path / "error-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA & (")
+        window.start_search()
+        for _ in range(40):
+            tk_root.update()
+            time.sleep(0.03)
+        assert str(window.search_button.cget("state")) == "normal"
+        assert str(window.cancel_button.cget("state")) == "disabled"
+        assert "検索式エラー" in window._status_text.get()
+
     def test_corrupt_index_falls_back_to_direct_search(self, tk_root, tmp_path, isolated_paths) -> None:
         """A damaged index database must not stop FileScope from starting."""
         index_file = Path(paths.index_path())
