@@ -1,5 +1,5 @@
 {
-  "root": "C:\\Users\\nanat\\AppData\\Local\\Temp\\filescope-bench-9pui73cp",
+  "root": "C:\\Users\\nanat\\AppData\\Local\\Temp\\filescope-bench-auuhwa27",
   "python": "3.11.9",
   "ocr": {
     "ready": false,
@@ -7,16 +7,16 @@
   },
   "enumeration": {
     "files": 2000,
-    "seconds": 0.1898,
-    "files_per_second": 10539.0
+    "seconds": 0.2316,
+    "files_per_second": 8635.0
   },
   "direct_first": {
-    "seconds": 2.878,
+    "seconds": 2.364,
     "results": 2000,
     "hits": 4000,
     "discovered": 2000,
-    "files_per_second": 694.9,
-    "first_result_seconds": 0.0112,
+    "files_per_second": 846.0,
+    "first_result_seconds": 0.0087,
     "coverage": {
       "discovered": 2000,
       "scanned": 2000,
@@ -30,17 +30,17 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 2.8776824474334717
+      "elapsed_seconds": 2.3627097606658936
     },
     "index_used": false
   },
   "index_build": {
-    "seconds": 8.594,
+    "seconds": 11.0,
     "results": 2000,
-    "hits": 160000,
+    "hits": 4000,
     "discovered": 2000,
-    "files_per_second": 232.7,
-    "first_result_seconds": 0.0076,
+    "files_per_second": 181.8,
+    "first_result_seconds": 0.0154,
     "coverage": {
       "discovered": 2000,
       "scanned": 2000,
@@ -54,17 +54,17 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 8.592980861663818
+      "elapsed_seconds": 11.000241994857788
     },
     "index_used": false
   },
   "index_repeat": {
-    "seconds": 2.071,
+    "seconds": 2.313,
     "results": 2000,
     "hits": 4000,
     "discovered": 2000,
-    "files_per_second": 965.8,
-    "first_result_seconds": 0.091,
+    "files_per_second": 864.5,
+    "first_result_seconds": 0.1302,
     "coverage": {
       "discovered": 2000,
       "scanned": 2000,
@@ -78,17 +78,17 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 2.0699822902679443
+      "elapsed_seconds": 2.3120434284210205
     },
     "index_used": true
   },
   "index_short_term": {
-    "seconds": 1.961,
+    "seconds": 2.302,
     "results": 2000,
     "hits": 2000,
     "discovered": 2000,
-    "files_per_second": 1019.8,
-    "first_result_seconds": 0.0378,
+    "files_per_second": 868.9,
+    "first_result_seconds": 0.0635,
     "coverage": {
       "discovered": 2000,
       "scanned": 2000,
@@ -102,17 +102,17 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 1.9587438106536865
+      "elapsed_seconds": 2.3005266189575195
     },
     "index_used": true
   },
   "selective_direct": {
-    "seconds": 1.227,
+    "seconds": 1.658,
     "results": 286,
     "hits": 286,
     "discovered": 2000,
-    "files_per_second": 1630.6,
-    "first_result_seconds": 0.0055,
+    "files_per_second": 1206.4,
+    "first_result_seconds": 0.0105,
     "coverage": {
       "discovered": 2000,
       "scanned": 2000,
@@ -126,17 +126,17 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 1.226973533630371
+      "elapsed_seconds": 1.6580119132995605
     },
     "index_used": false
   },
   "selective_index": {
-    "seconds": 0.466,
+    "seconds": 0.761,
     "results": 286,
     "hits": 286,
     "discovered": 2000,
-    "files_per_second": 4293.1,
-    "first_result_seconds": 0.008,
+    "files_per_second": 2627.1,
+    "first_result_seconds": 0.0112,
     "coverage": {
       "discovered": 2000,
       "scanned": 2000,
@@ -150,24 +150,24 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 0.4635584354400635
+      "elapsed_seconds": 0.7603120803833008
     },
     "index_used": true
   },
   "index": {
     "files": 2000,
     "chunks": 84286,
-    "size_bytes": 26387656,
+    "size_bytes": 27364096,
     "trigram": true
   },
   "ocr_cache_size": 98696,
   "documents_direct": {
-    "seconds": 0.21,
+    "seconds": 0.41,
     "results": 6,
     "hits": 12,
     "discovered": 16,
-    "files_per_second": 76.2,
-    "first_result_seconds": 0.0059,
+    "files_per_second": 39.1,
+    "first_result_seconds": 0.0171,
     "coverage": {
       "discovered": 16,
       "scanned": 14,
@@ -181,17 +181,17 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 0.20902180671691895
+      "elapsed_seconds": 0.4083874225616455
     },
     "index_used": false
   },
   "documents_index": {
-    "seconds": 0.124,
+    "seconds": 0.196,
     "results": 6,
-    "hits": 14,
+    "hits": 12,
     "discovered": 16,
-    "files_per_second": 128.6,
-    "first_result_seconds": 0.0865,
+    "files_per_second": 81.5,
+    "first_result_seconds": 0.1267,
     "coverage": {
       "discovered": 16,
       "scanned": 14,
@@ -205,9 +205,9 @@
       "warnings": 0,
       "errors": 0,
       "cancelled": false,
-      "elapsed_seconds": 0.12428593635559082
+      "elapsed_seconds": 0.19585037231445312
     },
     "index_used": false
   },
-  "peak_rss_bytes": 94031872
+  "peak_rss_bytes": 94281728
 }

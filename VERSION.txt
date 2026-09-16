@@ -1,6 +1,6 @@
-FileScope 5.0.0
+FileScope 5.1.0-rc1
 Build: pyinstaller onedir (win64)
-Source: codex/v5-major-rebuild merged to main, tag v5.0.0
+Source: branch codex/v5.1-ui-stability (based on tag v5.0.0)
 
 Contents
   FileScope.exe        program (no Python installation required)

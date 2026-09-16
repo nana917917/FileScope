@@ -40,6 +40,10 @@ class Outcome(str, Enum):
 #: backtracking hazard on long cell text; real part numbers never need it.
 MAX_WILDCARDS = 6
 
+#: Building the per-chunk character set only pays off when there are enough
+#: first-character groups to skip; below this the scan walks the groups directly.
+CHAR_FILTER_MIN_BUCKETS = 10
+
 
 @dataclass(frozen=True)
 class MatchOptions:
@@ -338,12 +342,14 @@ class FileMatchState:
         changed = False
         matched_here = False
         seen_here: set[int] | None = None
-        char_set = set(hay_norm)
-        if hay_part:
-            char_set |= set(hay_part)
+        char_set: set[str] | None = None
+        if len(self.matcher._buckets) >= CHAR_FILTER_MIN_BUCKETS:
+            char_set = set(hay_norm)
+            if hay_part:
+                char_set |= set(hay_part)
 
         for first, bucket in self.matcher._buckets.items():
-            if first not in char_set:
+            if char_set is not None and first not in char_set:
                 continue
             for pattern in bucket:
                 if pattern.pattern_id in self.matcher._multi_bucket_ids:
