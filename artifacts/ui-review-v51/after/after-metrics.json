@@ -1,8 +1,8 @@
 {
-  "search_seconds": 1.013,
+  "search_seconds": 1.003,
   "results": 6,
   "coverage": "発見 16 / 検索完了 14 / Hit 6資料 / 索引 0 / 実読込 14 / OCR 0ページ / Online-only skip 0",
-  "status": "完了: 6資料 / 12件一致 / 0.5秒 / 自動保存: E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\workspace\\appdata\\FileScope\\sessions\\results-20260916-230610.csv",
+  "status": "完了: 6資料 / 12件一致 / 0.4秒 / 自動保存: E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\workspace\\appdata\\FileScope\\sessions\\results-20260916-232826.csv",
   "fonts": {
     "TkCaptionFont": {
       "family": "Yu Gothic UI",

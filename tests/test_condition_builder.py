@@ -155,6 +155,74 @@ class TestBuilderRoundTrip:
         assert "ext:pdf,xlsx" in query and "size:<50MB" in query
 
 
+
+class TestBuilderMatchesManualInput:
+    """The builder must produce searches identical to the typed expression."""
+
+    CASES: ClassVar[list] = [
+        (["AAA", "BBB"], [], [], [], [], None),
+        ([], ["AAA", "BBB"], [], [], [], None),
+        (["AAA"], [], ["BBB"], [], [], None),
+        ([], [], [], ["AAA", "BBB", "CCC"], 2, None),
+        (["AAA"], [], [], [], [], "BBB"),
+    ]
+
+    @pytest.mark.parametrize("all_of, any_of, none_of, n_of, n_count, phrase", CASES)
+    def test_same_files_as_manual_query(
+        self, tmp_path, all_of, any_of, none_of, n_of, n_count, phrase
+    ) -> None:
+        from filescope.core.coordinator import SearchConfig, SearchSession
+        from tools.make_corpus import build_corpus
+
+        root = tmp_path / "corpus"
+        build_corpus(root, with_ocr_image=False)
+        groups = BuilderGroups(
+            all_of=all_of,
+            any_of=any_of,
+            none_of=none_of,
+            n_of=n_of,
+            n_of_count=n_count or 0,
+            phrases=[phrase] if phrase else [],
+        )
+        builder_query = to_query_string(groups.build())
+
+        manual_parts = []
+        if all_of:
+            manual_parts.append(" & ".join(all_of))
+        if any_of:
+            manual_parts.append("(" + " | ".join(any_of) + ")")
+        if none_of:
+            manual_parts.append(" & ".join("!" + term for term in none_of))
+        if n_of:
+            manual_parts.append(f"{n_count}of({','.join(n_of)})")
+        if phrase:
+            manual_parts.append(f'"{phrase}"')
+        manual_query = " & ".join(manual_parts)
+        assert parse_query(builder_query) is not None
+
+        def run(query: str) -> set[str]:
+            session = SearchSession(
+                SearchConfig(roots=(str(root),), query=query, mode="full", workers=2, index_enabled=False)
+            )
+            import threading
+
+            def drain() -> None:
+                while not session.finished or not session.events.empty():
+                    try:
+                        session.events.get(timeout=0.05)
+                    except Exception:
+                        continue
+
+            thread = threading.Thread(target=drain, daemon=True)
+            thread.start()
+            session.start()
+            session.wait(120)
+            thread.join(2)
+            return {os.path.basename(result.path) for result in session.summary.results}
+
+        assert run(builder_query) == run(manual_query), f"{builder_query!r} vs {manual_query!r}"
+
+
 class TestManyConditions:
     @staticmethod
     def query_with(count: int, prefix: str = "W") -> str:
