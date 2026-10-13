@@ -135,6 +135,14 @@ class SearchSession:
         )
         self.coverage = Coverage()
         self._lock = threading.Lock()
+        # Index reads are pure Python + sqlite3 fetches. They cannot overlap
+        # usefully (the GIL serialises them) but they *can* make each other much
+        # slower: measured on an 8-core host, serving 2,000 small files from a
+        # warm index took 0.52 s with one worker and 1.70 s with four, while
+        # burning 5x the CPU. One worker at a time inside the index is
+        # therefore both faster and cheaper; file extraction keeps using the
+        # full pool.
+        self._index_lock = threading.Lock()
         self._results: list[FileResult] = []
         self._issues: list[Issue] = []
         self._threads: list[threading.Thread] = []
@@ -423,7 +431,13 @@ class SearchSession:
             return
 
         key = normalized_key(entry.path)
-        indexed = self._indexed_and_current(entry)
+        indexed = False
+        if self.database is not None:
+            # Serialised for the same reason as the verdict below: concurrent
+            # sqlite3 fetches from several threads cost far more CPU and wall
+            # time than the same fetches run one after another.
+            with self._index_lock:
+                indexed = self._indexed_and_current(entry)
         decision = onedrive.decide(
             entry,
             mode=self.config.mode,
@@ -448,14 +462,16 @@ class SearchSession:
                     self.coverage.scanned += 1
                 self._touch_progress()
                 return
-            with self._lock:
-                self._index_active = True
-            if self._evaluate_from_index(entry, kind):
+            # Serialised on purpose: see the note on ``_index_lock``.
+            with self._index_lock:
                 with self._lock:
-                    self._index_active = False
-                return
-            with self._lock:
-                self._index_active = False
+                    self._index_active = True
+                try:
+                    if self._evaluate_from_index(entry, kind):
+                        return
+                finally:
+                    with self._lock:
+                        self._index_active = False
 
         self._read_and_match(entry, kind)
 

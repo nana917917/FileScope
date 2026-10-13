@@ -143,8 +143,10 @@ class TestCapacityAndRecovery:
         assert database.meta("schema_version") == "1"
 
 
-def run_search(root: Path, query: str, *, database=None, mode: str = "standard", **kwargs):
-    config = SearchConfig(roots=(str(root),), query=query, mode=mode, workers=3, **kwargs)
+def run_search(
+    root: Path, query: str, *, database=None, mode: str = "standard", workers: int = 3, **kwargs
+):
+    config = SearchConfig(roots=(str(root),), query=query, mode=mode, workers=workers, **kwargs)
     session = SearchSession(config, database=database)
     session.start()
     assert session.wait(120), "search did not finish in time"
@@ -291,5 +293,66 @@ class TestIndexUsage:
                 indexed = run_search(root, query, database=db, mode="standard")
                 direct = run_search(root, query, mode="full")
                 assert sorted(r.path for r in indexed.results) == sorted(r.path for r in direct.results), query
+        finally:
+            db.close()
+
+    def test_stored_chunks_keep_kind_location_and_order(self, database, tmp_path) -> None:
+        """The streamed rows must survive the fast chunk construction."""
+        target = tmp_path / "doc.txt"
+        target.write_text("AAA", encoding="utf-8")
+        item = entry(target)
+        database.store_file(
+            item,
+            [
+                Chunk(text="名前", kind=ChunkKind.NAME, location="ファイル名"),
+                Chunk(text="AAA", kind=ChunkKind.PAGE, location="1ページ"),
+                Chunk(text="AAA", kind=ChunkKind.CELL, location="A1"),
+            ],
+        )
+        row = database.file_row(item.path)
+        assert row is not None
+        chunks = list(database.iter_chunks(row[0]))
+        assert [chunk.kind for chunk in chunks] == [
+            ChunkKind.NAME,
+            ChunkKind.PAGE,
+            ChunkKind.CELL,
+        ]
+        assert [chunk.location for chunk in chunks] == ["ファイル名", "1ページ", "A1"]
+        assert [chunk.sequence for chunk in chunks] == [0, 1, 2]
+        assert [chunk.text for chunk in chunks] == ["名前", "AAA", "AAA"]
+
+    def test_unknown_kind_in_storage_falls_back_to_line(self, database, tmp_path) -> None:
+        target = tmp_path / "doc.txt"
+        target.write_text("AAA", encoding="utf-8")
+        item = entry(target)
+        database.store_file(item, [Chunk(text="AAA", kind=ChunkKind.LINE, location="1行")])
+        connection = database._connection_or_raise()
+        connection.execute("UPDATE chunks SET kind = 'not-a-kind'")
+        connection.commit()
+        row = database.file_row(item.path)
+        assert row is not None
+        chunks = list(database.iter_chunks(row[0]))
+        assert chunks and chunks[0].kind is ChunkKind.LINE
+
+    def test_indexed_results_do_not_depend_on_worker_count(self, tmp_path) -> None:
+        """Serialising the index lane must not change what a search returns."""
+        root = tmp_path / "workers"
+        root.mkdir()
+        for index in range(12):
+            (root / f"doc{index:02d}.txt").write_text(
+                f"AAA 評価 {index}\n" + ("BBB 電源\n" if index % 3 == 0 else ""),
+                encoding="utf-8",
+            )
+        db = IndexDatabase(str(tmp_path / "workers.sqlite3"))
+        try:
+            run_search(root, "AAA", database=db, mode="standard")
+            reference = None
+            for workers in (1, 2, 4, 8):
+                summary = run_search(root, "評価 & BBB", database=db, mode="standard", workers=workers)
+                paths = sorted(result.path for result in summary.results)
+                if reference is None:
+                    reference = paths
+                assert paths == reference, workers
+                assert summary.coverage.scanned == 12
         finally:
             db.close()
