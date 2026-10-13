@@ -49,6 +49,13 @@ from .state import (
 log = get_logger("ui")
 
 DRAIN_MS = 200
+#: While a search is running the UI drains more often: the events are cheap to
+#: consume and the list only redraws when results actually arrived.
+DRAIN_ACTIVE_MS = 100
+#: Rebuilding the result list costs ~15-30 ms per 1,000s of visible rows, so it
+#: is capped while results stream in. Progress counters still update on every
+#: drain; the list catches up at the end of the search.
+LIST_REFRESH_MS = 400
 MAX_ISSUE_ROWS = 500
 
 
@@ -71,6 +78,7 @@ class MainWindow(ttk.Frame):
         self._refine_var = tk.StringVar(value="")
         self._issue_rows = 0
         self._window_start = 0
+        self._last_render_at = 0.0
         self._full_scan_queue: queue.Queue = queue.Queue()
         # One font family for the whole window (Windows UI font); only the query
         # field is one point larger than the body text.
@@ -414,6 +422,16 @@ class MainWindow(ttk.Frame):
             ocr_available=self.ocr_status.ready,
         )
         self.session.start()
+        # Drain once right away and continue on the faster "search running"
+        # interval, so the first results appear as soon as they exist instead of
+        # waiting for the next idle tick.
+        self._wake_drain()
+
+    def _wake_drain(self) -> None:
+        """Run the pending drain now instead of waiting for its timer."""
+        with suppress(tk.TclError, ValueError):
+            self.after_cancel(self._drain_job)
+        self._drain_events()
 
     def cancel_search(self) -> None:
         if self.session is not None:
@@ -470,13 +488,29 @@ class MainWindow(ttk.Frame):
                     self.query_entry.selection_range(0, "end")
                 elif isinstance(event, events.Finished):
                     self._on_finished(event.summary)
-                    needs_render = True
+                    # ``_on_finished`` renders once with every result already in
+                    # the model, so the throttled refresh above is not needed.
+                    needs_render = False
         # Phase-2 updates only touch their own rows, so the selection and the
         # scroll position are preserved.
         self._apply_full_scan_updates()
         if needs_render:
-            self._render_results()
-        self._drain_job = self.after(DRAIN_MS, self._drain_events)
+            self._status_count()
+            if self._list_refresh_due():
+                self._render_results()
+        self._drain_job = self.after(self._drain_interval(), self._drain_events)
+
+    def _list_refresh_due(self) -> bool:
+        """Throttle list rebuilds while results stream in (never at the end)."""
+        if self.session is None or self.session.finished:
+            return True
+        return (time.perf_counter() - self._last_render_at) * 1000 >= LIST_REFRESH_MS
+
+    def _drain_interval(self) -> int:
+        """Drain more often while a search is running so results show up sooner."""
+        if (session := self.session) and not session.finished:
+            return DRAIN_ACTIVE_MS
+        return DRAIN_MS
 
     def _on_finished(self, summary) -> None:
         self._finish_buttons()
@@ -560,6 +594,7 @@ class MainWindow(ttk.Frame):
         return apply_filters(self.model.all_rows, self.state, self.settings.confirmed_set())
 
     def _render_results(self) -> None:
+        self._last_render_at = time.perf_counter()
         rows = self._visible_rows()
         self.model.apply_view(rows)
         self._fill_window(0)
@@ -577,6 +612,11 @@ class MainWindow(ttk.Frame):
         total = len(self.model.visible)
         start = max(0, min(start, max(0, total - results_module.WINDOW_ROWS)))
         self._window_start = start
+        # Rebuilding the list drops the Treeview selection in the middle of a
+        # search; put it back on the file the preview is showing so the pane and
+        # the list stay in step.
+        anchor = self.preview.current_path
+        restore = ""
         for item in self.tree.get_children():
             self.tree.delete(item)
         for index, row in self.model.window(start, start + results_module.WINDOW_ROWS):
@@ -587,6 +627,10 @@ class MainWindow(ttk.Frame):
                 values=results_module.values_for(row, self.ocr_status.ready),
                 tags=results_module.row_tags(row, index),
             )
+            if anchor and row.result.path == anchor:
+                restore = str(index)
+        if restore:
+            self.tree.selection_set(restore)
         if total:
             first = start / total
             last = min(1.0, (start + min(total, results_module.WINDOW_ROWS)) / total)
@@ -646,7 +690,13 @@ class MainWindow(ttk.Frame):
     def _on_select(self, _event=None) -> None:
         result = self._selected_result()
         if result is None:
-            self.preview.clear()
+            # A redraw during a search clears the Treeview selection, and Tk
+            # reports that asynchronously as a select event. Keep showing the
+            # file the user picked instead of flashing empty; a new search
+            # clears the pane explicitly.
+            return
+        if result.path == self.preview.current_path:
+            # Already displayed: do not restart the (expensive) load.
             return
         config = self.state.to_config(self.settings)
         self.preview.show(

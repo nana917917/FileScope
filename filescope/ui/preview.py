@@ -168,6 +168,11 @@ class PreviewPane(ttk.Frame):
         self._set_text("結果を選ぶと、ここに根拠（セル・ページ・段落）が表示されます。")
         self._show_text_view()
 
+    @property
+    def current_path(self) -> str:
+        """Path of the file currently shown (empty when the pane is cleared)."""
+        return self._current.path if self._current is not None else ""
+
     def step(self, direction: int) -> None:
         if not self._match_indexes:
             return

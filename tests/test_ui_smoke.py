@@ -343,3 +343,117 @@ class TestAcceptance:
         assert len(window.model.visible) == 3000
         # Only a window of rows may exist in the widget at any time.
         assert len(window.tree.get_children()) <= results_module.WINDOW_ROWS
+
+    def test_rerender_keeps_the_previewed_row_selected(self, tk_root, tmp_path, isolated_paths) -> None:
+        """Rebuilding the list mid-search must not throw the preview away."""
+        corpus = build_corpus(tmp_path / "anchor-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        rows = window.tree.get_children()
+        assert rows
+        window.tree.selection_set(rows[0])
+        pump(tk_root, 1.0)
+        anchor = window.preview.current_path
+        assert anchor, "the preview should be showing the selected file"
+
+        window._render_results()
+        pump(tk_root, 0.2)
+        selection = window.tree.selection()
+        assert len(selection) == 1
+        row = window.model.row_at(int(selection[0]))
+        assert row is not None and row.result.path == anchor
+        assert window.preview.current_path == anchor
+        shutdown(window)
+
+    def test_lost_selection_does_not_clear_the_preview(self, tk_root, tmp_path, isolated_paths) -> None:
+        corpus = build_corpus(tmp_path / "anchor2-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 1.0)
+        rows = window.tree.get_children()
+        window.tree.selection_set(rows[0])
+        pump(tk_root, 1.0)
+        anchor = window.preview.current_path
+        assert anchor
+        # Tk reports the selection a redraw drops as a select event; the pane
+        # must keep showing the file the user picked.
+        for item in window.tree.get_children():
+            window.tree.delete(item)
+        pump(tk_root, 0.3)
+        window._on_select()
+        assert window.preview.current_path == anchor
+        shutdown(window)
+
+    def test_reselecting_the_same_file_does_not_reload_the_preview(
+        self, tk_root, tmp_path, isolated_paths
+    ) -> None:
+        corpus = build_corpus(tmp_path / "anchor3-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 1.0)
+        rows = window.tree.get_children()
+        window.tree.selection_set(rows[0])
+        pump(tk_root, 1.0)
+        loads: list[str] = []
+        original = window.preview.show
+
+        def record(result, config, **kwargs):
+            loads.append(result.path)
+            return original(result, config, **kwargs)
+
+        window.preview.show = record  # type: ignore[method-assign]
+        window._on_select()
+        window._on_select()
+        assert loads == []
+        other = window.tree.get_children()[1]
+        window.tree.selection_set(other)
+        window._on_select()
+        assert len(loads) == 1
+        shutdown(window)
+
+    def test_list_refresh_is_throttled_while_results_stream(self, tk_root, isolated_paths) -> None:
+        class _Running:
+            finished = False
+
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.session = _Running()  # type: ignore[assignment]
+        window._last_render_at = time.perf_counter()
+        assert window._list_refresh_due() is False
+        window._last_render_at -= 10.0
+        assert window._list_refresh_due() is True
+        window.session = None
+        assert window._list_refresh_due() is True
+        shutdown(window)
