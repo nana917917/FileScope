@@ -58,6 +58,14 @@ DRAIN_ACTIVE_MS = 100
 LIST_REFRESH_MS = 400
 MAX_ISSUE_ROWS = 500
 
+#: One row rhythm for the whole form, so inputs, labels and buttons line up.
+FORM_PAD_Y = 5
+BTN_PAD = (9, 4)
+#: Accent used for the primary action (matches the OCR highlight already used
+#: in the result list, so no new colour enters the palette).
+PRIMARY_BG = "#1f5f8b"
+PRIMARY_ACTIVE_BG = "#17496b"
+
 
 class MainWindow(ttk.Frame):
     def __init__(self, master: tk.Tk, *, settings: Settings, ocr_status=None) -> None:
@@ -133,7 +141,15 @@ class MainWindow(ttk.Frame):
 
         Laid out with grid weights so the folder and query fields always use the
         full window width: the inputs stretch, the buttons keep a fixed size.
+        Every button shares one padding so the rows keep the same height, and
+        検索開始 is the only control drawn with an accent colour.
         """
+        style = ttk.Style(self)
+        style.configure("TButton", padding=BTN_PAD)
+        # A slightly thicker sash makes the list/preview boundary visible.
+        with suppress(tk.TclError):
+            style.configure("Sash", sashthickness=8, gripcount=0)
+
         form = ttk.Frame(self, padding=(8, 6, 8, 2))
         form.pack(fill="x")
         form.columnconfigure(1, weight=1)
@@ -141,32 +157,54 @@ class MainWindow(ttk.Frame):
         ttk.Label(form, text="検索場所").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.root_var = tk.StringVar(value=self.state.root)
         self.root_combo = ttk.Combobox(form, textvariable=self.root_var, values=self.settings.recent_roots)
-        self.root_combo.grid(row=0, column=1, sticky="ew")
+        self.root_combo.grid(row=0, column=1, sticky="ew", pady=(2, 0))
         folder_buttons = ttk.Frame(form)
-        folder_buttons.grid(row=0, column=2, sticky="e", padx=(6, 0))
+        folder_buttons.grid(row=0, column=2, sticky="e", padx=(8, 0), pady=(2, 0))
         ttk.Button(folder_buttons, text="参照", width=6, command=self.choose_root).pack(side="left")
-        ttk.Button(folder_buttons, text="＋追加", width=7, command=self.add_root).pack(side="left", padx=3)
+        ttk.Button(folder_buttons, text="＋追加", width=7, command=self.add_root).pack(side="left", padx=4)
         ttk.Button(folder_buttons, text="一覧", width=6, command=self.open_folders).pack(side="left")
 
-        ttk.Label(form, text="検索文字").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
+        ttk.Label(form, text="検索文字").grid(
+            row=1, column=0, sticky="w", padx=(0, 6), pady=(FORM_PAD_Y, 0)
+        )
         self.query_var = tk.StringVar(value=self.state.query)
         query_entry = ttk.Entry(form, textvariable=self.query_var, font=self.query_font)
-        query_entry.grid(row=1, column=1, sticky="ew", pady=(4, 0))
+        query_entry.grid(row=1, column=1, sticky="ew", pady=(FORM_PAD_Y, 0))
         query_entry.bind("<Return>", lambda _event: self.start_search())
         self.query_entry = query_entry
-        self.search_button = ttk.Button(form, text="検索開始", command=self.start_search, width=10)
-        self.search_button.grid(row=1, column=2, sticky="e", padx=(6, 0), pady=(4, 0))
+        # The primary action uses a classic button: the Windows ttk theme ignores
+        # background colours, and 検索開始 is the one control that must stand out.
+        self.search_button = tk.Button(
+            form,
+            text="検索開始",
+            command=self.start_search,
+            font=self.body_bold,
+            background=PRIMARY_BG,
+            foreground="#ffffff",
+            activebackground=PRIMARY_ACTIVE_BG,
+            activeforeground="#ffffff",
+            disabledforeground="#e6e6e6",
+            padx=16,
+            pady=4,
+            relief="raised",
+            borderwidth=1,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        self.search_button.grid(row=1, column=2, sticky="e", padx=(8, 0), pady=(FORM_PAD_Y, 0))
 
         ttk.Label(form, text="除外（この語を含む資料は除く）").grid(
-            row=2, column=0, sticky="w", padx=(0, 6), pady=(4, 0)
+            row=2, column=0, sticky="w", padx=(0, 6), pady=(FORM_PAD_Y, 0)
         )
         self.exclude_var = tk.StringVar(value=self.state.exclude_query)
         ttk.Entry(form, textvariable=self.exclude_var, font=self.body_font).grid(
-            row=2, column=1, sticky="ew", pady=(4, 0)
+            row=2, column=1, sticky="ew", pady=(FORM_PAD_Y, 0)
         )
         ttk.Label(form, text="カンマ区切りも可", foreground="#666").grid(
-            row=2, column=2, sticky="w", padx=(6, 0), pady=(4, 0)
+            row=2, column=2, sticky="w", padx=(8, 0), pady=(FORM_PAD_Y, 0)
         )
+
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8, pady=(6, 2))
 
         mode_row = ttk.Frame(self, padding=(8, 2, 8, 0))
         mode_row.pack(fill="x")
@@ -205,10 +243,13 @@ class MainWindow(ttk.Frame):
             ("unknown", "未知形式"),
         ):
             ttk.Checkbutton(exact, text=label, variable=self.kind_vars[key]).pack(side="left", padx=2)
-        ttk.Button(exact, text="条件…", width=7, command=self.open_condition_builder).pack(side="left", padx=(10, 2))
-        ttk.Button(exact, text="詳細設定…", width=10, command=self.open_settings).pack(side="left", padx=2)
-        ttk.Button(exact, text="索引…", width=7, command=self.open_index_status).pack(side="left", padx=2)
-        ttk.Button(exact, text="診断…", width=7, command=self.open_diagnostics).pack(side="left", padx=2)
+        # The dialogs stay on this row but are pushed to the right edge, so the
+        # frequently used 条件… never hides behind them.
+        ttk.Separator(exact, orient="vertical").pack(side="left", fill="y", padx=10, pady=2)
+        ttk.Button(exact, text="条件…", width=7, command=self.open_condition_builder).pack(side="left", padx=4)
+        ttk.Button(exact, text="詳細設定…", width=10, command=self.open_settings).pack(side="left", padx=4)
+        ttk.Button(exact, text="索引…", width=7, command=self.open_index_status).pack(side="left", padx=4)
+        ttk.Button(exact, text="診断…", width=7, command=self.open_diagnostics).pack(side="left", padx=4)
 
         actions = ttk.Frame(self, padding=(8, 0, 8, 2))
         actions.pack(fill="x")
@@ -218,8 +259,9 @@ class MainWindow(ttk.Frame):
             actions, text="一時停止", width=8, command=self.toggle_pause, state="disabled"
         )
         self.pause_button.pack(side="left", padx=4)
-        ttk.Button(actions, text="プリセット", width=10, command=self.open_presets).pack(side="left", padx=(10, 2))
-        ttk.Button(actions, text="履歴", width=7, command=self.open_history).pack(side="left", padx=2)
+        ttk.Separator(actions, orient="vertical").pack(side="left", fill="y", padx=10, pady=2)
+        ttk.Button(actions, text="プリセット", width=10, command=self.open_presets).pack(side="left", padx=4)
+        ttk.Button(actions, text="履歴", width=7, command=self.open_history).pack(side="left", padx=4)
         ttk.Button(actions, text="CSV保存", width=9, command=self.export_csv).pack(side="right")
         self.ocr_label = ttk.Label(
             actions,
@@ -235,15 +277,21 @@ class MainWindow(ttk.Frame):
         ttk.Label(actions, textvariable=self._index_text, foreground="#555").pack(side="right", padx=6)
 
     def _build_body(self) -> None:
+        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8, pady=(4, 0))
         body = ttk.Panedwindow(self, orient="horizontal")
         body.pack(fill="both", expand=True, padx=8, pady=4)
         self.body_paned = body
         self._sash_placed = False
 
         left = ttk.Frame(body)
-        right = ttk.Frame(body)
+        # The ttk sash is nearly invisible on the Windows theme, so the preview
+        # side carries its own 1px edge; the pane stays draggable as before.
+        right_edge = tk.Frame(body, highlightbackground="#c9c9c9", highlightthickness=0)
+        right = ttk.Frame(right_edge)
+        right.pack(fill="both", expand=True, padx=(1, 0))
+        right_edge.configure(highlightthickness=1)
         body.add(left, weight=3)
-        body.add(right, weight=2)
+        body.add(right_edge, weight=2)
 
         refine = ttk.Frame(left)
         refine.pack(fill="x", pady=(0, 4))
@@ -518,9 +566,10 @@ class MainWindow(ttk.Frame):
         self._coverage_text.set(summary.coverage.line())
         self._progress_text.set(summary.coverage.summary_line())
         elapsed = summary.elapsed
-        status = (
-            f"完了: {len(summary.results):,}資料 / {summary.total_hits:,}件一致 / {elapsed:.1f}秒"
-        )
+        if summary.coverage.cancelled:
+            status = f"中断: {len(summary.results):,}資料 / {elapsed:.1f}秒"
+        else:
+            status = f"完了: {len(summary.results):,}資料 / {summary.total_hits:,}件一致 / {elapsed:.1f}秒"
         self._rebuild_facets()
         self._render_results()
         record_history(self.settings, self.state, len(summary.results), elapsed)
@@ -528,7 +577,9 @@ class MainWindow(ttk.Frame):
         if self.settings.autosave_results and summary.results:
             path = self._autosave(summary)
             if path:
-                status += f" / 自動保存: {path}"
+                # Only the file name: the full session path used to push the
+                # status bar past the window edge on smaller screens.
+                status += f" / 自動保存: {os.path.basename(path)}"
         self._status_text.set(status)
         self._update_index_label()
 
