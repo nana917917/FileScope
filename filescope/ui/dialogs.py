@@ -3,8 +3,10 @@ presets/history and the shortcut list."""
 
 from __future__ import annotations
 
+import os
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
+from typing import ClassVar
 
 from .. import diagnostics, paths
 from ..config import (
@@ -14,7 +16,14 @@ from ..config import (
     ONLINE_POLICY_LABELS,
     Settings,
 )
-from ..core.query import BuilderGroups, parse_query, to_query_string
+from ..core.query import (
+    TYPE_EXTENSION_MAP,
+    BuilderGroups,
+    Meta,
+    parse_into_groups,
+    parse_query,
+    to_query_string,
+)
 from ..errors import QuerySyntaxError
 
 
@@ -49,114 +58,467 @@ class Dialog(ttk.Frame):
 
 
 class ConditionBuilderDialog(Dialog):
-    """Build AND / OR / N-of-M / exclude / phrase / proximity conditions."""
+    """Build search conditions without having to know the query syntax.
+
+    The dialog round-trips: opening it with an existing expression fills the
+    fields (anything it cannot express is kept verbatim in 詳細式), and applying
+    it produces an expression with the same meaning.
+    """
+
+    TYPE_EXTENSIONS: ClassVar[dict[str, tuple[str, ...]]] = TYPE_EXTENSION_MAP
 
     def __init__(self, parent, *, initial: str = "", legacy_operator: str = "OR") -> None:
-        super().__init__(parent, "条件を作る", width=720, height=580)
+        super().__init__(parent, "条件を作る", width=900, height=620)
         self.legacy_operator = legacy_operator
+        groups = BuilderGroups()
+        self._metadata_rest: list[str] = []
+        if initial.strip():
+            try:
+                groups = parse_into_groups(
+                    parse_query(initial, legacy_operator=legacy_operator)
+                )
+            except QuerySyntaxError:
+                # An expression that does not parse is kept as text so the user
+                # can repair it instead of losing it.
+                groups.advanced = initial.strip()
+
         body = ttk.Frame(self, padding=10)
         body.pack(fill="both", expand=True)
         ttk.Label(
             body,
-            text="入力した条件は検索欄の検索式に変換されます。検索欄では直接入力もできます。",
-            wraplength=660,
-        ).pack(anchor="w", pady=(0, 8))
+            text="検索式を覚えなくても大丈夫です。各欄に1行ずつ入力してください（引用符は自動で処理します）。",
+        ).pack(anchor="w")
 
-        self.fields: dict[str, tk.Text] = {}
-        self.all_of = self._multiline(body, "すべて含む (AND)", 3)
-        self.any_of = self._multiline(body, "いずれか含む (OR)", 3)
-        self.none_of = self._multiline(body, "含まない (NOT)", 2)
+        columns = ttk.Frame(body)
+        columns.pack(fill="both", expand=True, pady=(8, 0))
+        left = ttk.Frame(columns)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        right = ttk.Frame(columns)
+        right.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
-        count_row = ttk.Frame(body)
-        count_row.pack(fill="x", pady=4)
-        ttk.Label(count_row, text="いくつ含むか").pack(side="left")
-        self.count_var = tk.StringVar(value="2")
-        ttk.Spinbox(count_row, from_=1, to=9, width=4, textvariable=self.count_var).pack(side="left", padx=4)
-        ttk.Label(count_row, text="個（N of M）").pack(side="left")
-        self.n_of = self._multiline(body, "N個中いくつ含むか (2of(A,B,C))", 3)
+        self.all_of = self._multiline(
+            left, "すべて含む", "入れた言葉が全部ある資料（例: 電源 / ノイズ）", 4
+        )
+        self.any_of = self._multiline(
+            left, "どれか含む", "1つでもあればOK（例: 耐久 / 落下）", 3
+        )
+        self.none_of = self._multiline(
+            left, "含まない", "この言葉がある資料は除外（例: 旧版）", 2
+        )
 
-        self.phrase = self._single(body, "完全一致フレーズ (\"耐久 試験\")")
-        near_row = ttk.Frame(body)
-        near_row.pack(fill="x", pady=4)
-        ttk.Label(near_row, text="近くにある").pack(side="left")
-        self.near_a = ttk.Entry(near_row, width=16)
-        self.near_a.pack(side="left", padx=2)
-        self.near_b = ttk.Entry(near_row, width=16)
-        self.near_b.pack(side="left", padx=2)
-        self.near_distance = ttk.Entry(near_row, width=6)
-        self.near_distance.insert(0, "100")
-        self.near_distance.pack(side="left")
-        ttk.Label(near_row, text="文字以内（同一セル/ページ）").pack(side="left", padx=4)
+        n_frame = ttk.LabelFrame(right, text="N個以上含む", padding=6)
+        n_frame.pack(fill="x", pady=(0, 6))
+        count_row = ttk.Frame(n_frame)
+        count_row.pack(fill="x")
+        ttk.Label(count_row, text="候補のうち").pack(side="left")
+        self.count_var = tk.StringVar(value=str(groups.n_of_count or 2))
+        ttk.Spinbox(count_row, from_=1, to=20, width=3, textvariable=self.count_var).pack(side="left", padx=4)
+        ttk.Label(count_row, text="個以上").pack(side="left")
+        ttk.Label(n_frame, text="例: 3つ中2つ以上あればヒット", foreground="#666").pack(anchor="w")
+        self.n_of = tk.Text(n_frame, height=3, width=24, wrap="word")
+        self.n_of.pack(fill="x", pady=(4, 0))
 
-        self.metadata = self._single(body, "メタ条件 (例: type:pdf size:<50MB modified:>=2025-01-01)")
-        if initial.strip():
-            self.all_of.insert("1.0", initial.strip())
+        self.phrase = self._entry(right, "完全一致", "入力した並びで探す（例: 耐久 試験）")
+
+        near_frame = ttk.LabelFrame(right, text="近くにある", padding=6)
+        near_frame.pack(fill="x", pady=(6, 0))
+        near_row = ttk.Frame(near_frame)
+        near_row.pack(fill="x")
+        self.near_a = ttk.Entry(near_row, width=10)
+        self.near_a.pack(side="left")
+        ttk.Label(near_row, text="と").pack(side="left", padx=3)
+        self.near_b = ttk.Entry(near_row, width=10)
+        self.near_b.pack(side="left")
+        self.near_distance = ttk.Entry(near_row, width=4)
+        self.near_distance.pack(side="left", padx=(6, 2))
+        ttk.Label(near_row, text="文字以内").pack(side="left")
+        ttk.Label(near_frame, text="同じセル・ページ内で近くにある資料", foreground="#666").pack(anchor="w")
+
+        self._build_file_conditions(body, groups)
+        self._build_advanced(body, groups)
 
         preview_row = ttk.Frame(body)
         preview_row.pack(fill="x", pady=(8, 2))
-        ttk.Label(preview_row, text="検索式プレビュー").pack(side="left")
+        ttk.Label(preview_row, text="この条件で検索される式").pack(side="left")
         ttk.Button(preview_row, text="更新", command=self._preview).pack(side="right")
         self.preview_var = tk.StringVar(value="")
         ttk.Entry(body, textvariable=self.preview_var, state="readonly").pack(fill="x")
+        self.error_var = tk.StringVar(value="")
+        ttk.Label(body, textvariable=self.error_var, foreground="#a94442").pack(anchor="w")
 
         buttons = ttk.Frame(body)
-        buttons.pack(fill="x", pady=8)
+        buttons.pack(fill="x", pady=(6, 0))
         ttk.Button(buttons, text="この条件を使う", command=self._accept).pack(side="right", padx=4)
+        ttk.Button(buttons, text="条件をクリア", command=self._clear).pack(side="right", padx=4)
         ttk.Button(buttons, text="キャンセル", command=self._cancel).pack(side="right")
-        self._preview()
 
-    def _multiline(self, parent, label: str, height: int) -> tk.Text:
-        ttk.Label(parent, text=label).pack(anchor="w", pady=(6, 0))
-        widget = tk.Text(parent, height=height, wrap="word")
+        self._apply_groups(groups)
+        self._preview()
+        for widget in (self.all_of, self.any_of, self.none_of, self.n_of):
+            widget.bind("<KeyRelease>", lambda _event: self._preview())
+        for entry in (self.phrase, self.near_a, self.near_b, self.name_entry, self.size_value, self.modified_value):
+            entry.bind("<KeyRelease>", lambda _event: self._preview())
+
+    # ----------------------------------------------------------- widgets
+    def _multiline(self, parent, label: str, hint: str, height: int) -> tk.Text:
+        ttk.Label(parent, text=label, font=("", 9, "bold")).pack(anchor="w", pady=(6, 0))
+        # An explicit small width keeps the requested size down so both columns
+        # stay inside the dialog; the widget stretches with fill="x" anyway.
+        widget = tk.Text(parent, height=height, width=28, wrap="word")
         widget.pack(fill="x")
+        ttk.Label(parent, text=hint, foreground="#666").pack(anchor="w")
         return widget
 
-    def _single(self, parent, label: str) -> ttk.Entry:
-        ttk.Label(parent, text=label).pack(anchor="w", pady=(6, 0))
+    def _entry(self, parent, label: str, hint: str) -> ttk.Entry:
+        ttk.Label(parent, text=label, font=("", 9, "bold")).pack(anchor="w", pady=(6, 0))
         entry = ttk.Entry(parent)
         entry.pack(fill="x")
+        ttk.Label(parent, text=hint, foreground="#666").pack(anchor="w")
         return entry
+
+    def _build_file_conditions(self, parent, groups: BuilderGroups) -> None:
+        self.file_frame = ttk.LabelFrame(parent, text="ファイル条件（任意）", padding=6)
+        self.file_frame.pack(fill="x", pady=(8, 0))
+        toggle = ttk.Button(
+            self.file_frame, text="▼ 表示中", width=10, command=self._toggle_file_conditions
+        )
+        toggle.pack(anchor="w")
+        self._file_toggle = toggle
+        self.file_body = ttk.Frame(self.file_frame)
+        self.file_body.pack(fill="x", pady=(4, 0))
+
+        types_row = ttk.Frame(self.file_body)
+        types_row.pack(fill="x")
+        ttk.Label(types_row, text="種類").pack(side="left", padx=(0, 6))
+        self.type_vars = {
+            key: tk.BooleanVar(value=False)
+            for key in ("pdf", "excel", "word", "ppt", "text", "archive")
+        }
+        for key, label in (
+            ("pdf", "PDF"),
+            ("excel", "Excel"),
+            ("word", "Word"),
+            ("ppt", "PPT"),
+            ("text", "Text"),
+            ("archive", "ZIP"),
+        ):
+            ttk.Checkbutton(types_row, text=label, variable=self.type_vars[key]).pack(side="left")
+
+        name_row = ttk.Frame(self.file_body)
+        name_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(name_row, text="ファイル名に含む").pack(side="left")
+        self.name_entry = ttk.Entry(name_row, width=24)
+        self.name_entry.pack(side="left", padx=6, fill="x", expand=True)
+
+        date_row = ttk.Frame(self.file_body)
+        date_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(date_row, text="更新日").pack(side="left")
+        self.modified_op = tk.StringVar(value=">=")
+        ttk.Combobox(
+            date_row, width=4, state="readonly", textvariable=self.modified_op, values=[">=", "<="]
+        ).pack(side="left", padx=4)
+        self.modified_value = ttk.Entry(date_row, width=12)
+        self.modified_value.pack(side="left")
+        ttk.Label(date_row, text="（例: 2025-01-01）").pack(side="left", padx=4)
+
+        size_row = ttk.Frame(self.file_body)
+        size_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(size_row, text="サイズ").pack(side="left")
+        self.size_op = tk.StringVar(value="<")
+        ttk.Combobox(
+            size_row, width=4, state="readonly", textvariable=self.size_op, values=["<", "<=", ">", ">="]
+        ).pack(side="left", padx=4)
+        self.size_value = ttk.Entry(size_row, width=10)
+        self.size_value.pack(side="left")
+        ttk.Label(size_row, text="（例: 50MB）").pack(side="left", padx=4)
+
+        self._prefill_file_conditions(groups.metadata)
+        for variable in self.type_vars.values():
+            variable.trace_add("write", lambda *_a: self._preview())
+
+    def _build_advanced(self, parent, groups: BuilderGroups) -> None:
+        self.advanced_frame = ttk.LabelFrame(parent, text="詳細式（上級者向け）", padding=6)
+        self.advanced_frame.pack(fill="x", pady=(6, 0))
+        self._advanced_toggle = ttk.Button(
+            self.advanced_frame, text="▶ 開く", width=10, command=self._toggle_advanced
+        )
+        self._advanced_toggle.pack(anchor="w")
+        self.advanced_body = ttk.Frame(self.advanced_frame)
+        ttk.Label(
+            self.advanced_body,
+            text="ここに書いた式はそのまま検索式として使われます（上の欄と AND で結合）。",
+            foreground="#666",
+        ).pack(anchor="w")
+        self.advanced = tk.Text(self.advanced_body, height=2, width=40, wrap="word")
+        self.advanced.pack(fill="x")
+        self._advanced_open = False
+        if groups.advanced:
+            self._toggle_advanced()
+            self._advanced_open = True
+
+    def _toggle_file_conditions(self) -> None:
+        if self.file_body.winfo_ismapped():
+            self.file_body.pack_forget()
+            self._file_toggle.configure(text="▶ 表示")
+        else:
+            self.file_body.pack(fill="x", pady=(4, 0))
+            self._file_toggle.configure(text="▼ 表示中")
+
+    def _toggle_advanced(self) -> None:
+        if self.advanced_body.winfo_ismapped():
+            self.advanced_body.pack_forget()
+            self._advanced_toggle.configure(text="▶ 開く")
+        else:
+            self.advanced_body.pack(fill="x", pady=(4, 0))
+            self._advanced_toggle.configure(text="▼ 表示中")
+
+    # ---------------------------------------------------------- population
+    def _apply_groups(self, groups: BuilderGroups) -> None:
+        self._set_lines(self.all_of, groups.all_of)
+        self._set_lines(self.any_of, groups.any_of)
+        self._set_lines(self.none_of, groups.none_of)
+        self._set_lines(self.n_of, groups.n_of)
+        if groups.phrases:
+            self.phrase.insert(0, groups.phrases[0])
+        for extra in groups.phrases[1:]:
+            self._append_line(self.all_of, f'"{extra}"')
+        self.near_a.insert(0, groups.near_a)
+        self.near_b.insert(0, groups.near_b)
+        self.near_distance.delete(0, "end")
+        self.near_distance.insert(0, str(groups.near_distance or 100))
+        if groups.advanced:
+            self.advanced.insert("1.0", groups.advanced)
+
+    def _prefill_file_conditions(self, metadata: list[str]) -> None:
+        wanted_exts: set[str] = set()
+        for text in metadata:
+            try:
+                node = parse_query(text, legacy_operator=self.legacy_operator)
+            except QuerySyntaxError:
+                self._metadata_rest.append(text)
+                continue
+            if not isinstance(node, Meta):
+                self._metadata_rest.append(text)
+                continue
+            if node.field == "type":
+                for key, extensions in self.TYPE_EXTENSIONS.items():
+                    if extensions[0].lstrip(".") in {node.value, node.value + "x"} or key == node.value:
+                        self.type_vars[key].set(True)
+            elif node.field == "ext":
+                wanted_exts.update("." + value.lstrip(".") for value in node.value.split(",") if value)
+            elif node.field == "name":
+                self.name_entry.delete(0, "end")
+                self.name_entry.insert(0, node.value)
+            elif node.field == "modified":
+                self.modified_op.set(node.op if node.op in (">=", "<=") else ">=")
+                self.modified_value.delete(0, "end")
+                self.modified_value.insert(0, node.value.split("..")[0])
+            elif node.field == "size":
+                self.size_op.set(node.op if node.op in ("<", "<=", ">", ">=") else "<")
+                self.size_value.delete(0, "end")
+                self.size_value.insert(0, _human_size(node.value.split("..")[0]))
+            else:
+                self._metadata_rest.append(text)
+        if wanted_exts:
+            matched = False
+            for key, extensions in self.TYPE_EXTENSIONS.items():
+                if wanted_exts == set(extensions):
+                    self.type_vars[key].set(True)
+                    matched = True
+                    break
+            if not matched:
+                # Keep the exact extension list instead of widening it to a group.
+                self._metadata_rest.append(
+                    "ext:" + ",".join(sorted(ext.lstrip(".") for ext in wanted_exts))
+                )
+
+    def _set_lines(self, widget: tk.Text, values: list[str]) -> None:
+        if values:
+            widget.insert("1.0", "\n".join(values))
+
+    def _append_line(self, widget: tk.Text, value: str) -> None:
+        current = widget.get("1.0", "end").strip()
+        widget.delete("1.0", "end")
+        widget.insert("1.0", f"{current}\n{value}" if current else value)
 
     def _lines(self, widget: tk.Text) -> list[str]:
         return [line.strip() for line in widget.get("1.0", "end").splitlines() if line.strip()]
 
+    # -------------------------------------------------------------- build
+    def _file_metadata(self) -> list[str]:
+        values: list[str] = []
+        chosen = [key for key, var in self.type_vars.items() if var.get()]
+        if chosen:
+            extensions = [ext.lstrip(".") for key in chosen for ext in self.TYPE_EXTENSIONS[key]]
+            values.append(f"ext:{','.join(dict.fromkeys(extensions))}")
+        name = self.name_entry.get().strip()
+        if name:
+            values.append(f"name:{name}")
+        date = self.modified_value.get().strip()
+        if date:
+            values.append(f"modified:{self.modified_op.get()}{date}")
+        size = self.size_value.get().strip()
+        if size:
+            values.append(f"size:{self.size_op.get()}{size}")
+        values.extend(self._metadata_rest)
+        return values
+
     def _build_query(self) -> tuple[str, str]:
+        try:
+            count = max(1, int(self.count_var.get() or 1))
+        except ValueError:
+            return "", "「N個以上含む」の数は数字で入力してください"
+        try:
+            distance = max(1, int(self.near_distance.get() or 100))
+        except ValueError:
+            return "", "「近くにある」の距離は数字で入力してください"
+        advanced = self.advanced.get("1.0", "end").strip()
+        if advanced:
+            try:
+                parse_query(advanced, legacy_operator=self.legacy_operator)
+            except QuerySyntaxError as exc:
+                return "", f"詳細式のエラー: {exc.message}"
         groups = BuilderGroups(
             all_of=self._lines(self.all_of),
             any_of=self._lines(self.any_of),
-            n_of_count=int(self.count_var.get() or 0),
+            n_of_count=count if self._lines(self.n_of) else 0,
             n_of=self._lines(self.n_of),
             none_of=self._lines(self.none_of),
             phrases=[self.phrase.get()] if self.phrase.get().strip() else [],
             near_a=self.near_a.get(),
             near_b=self.near_b.get(),
-            near_distance=int(self.near_distance.get() or 100),
+            near_distance=distance,
+            metadata=self._file_metadata(),
+            advanced=advanced,
         )
-        metadata_text = self.metadata.get().strip()
-        node = groups.build()
-        query = to_query_string(node) if node is not None else ""
-        if metadata_text:
-            try:
-                meta_node = parse_query(metadata_text, legacy_operator=self.legacy_operator)
-            except QuerySyntaxError as exc:
-                return "", f"メタ条件のエラー: {exc.message}"
-            meta_query = to_query_string(meta_node) if meta_node is not None else ""
-            query = f"({query}) & {meta_query}" if query else meta_query
-        return query, ""
+        try:
+            node = groups.build()
+        except QuerySyntaxError as exc:
+            return "", f"条件のエラー: {exc.message}"
+        if node is None:
+            return "", ""
+        return to_query_string(node), ""
 
-    def _preview(self) -> None:
+    def _preview(self) -> str:
         query, error = self._build_query()
-        self.preview_var.set(error or query)
+        self.error_var.set(error)
+        self.preview_var.set(error or query or "（条件が未入力です）")
+        return query
+
+    def _clear(self) -> None:
+        for widget in (self.all_of, self.any_of, self.none_of, self.n_of, self.advanced):
+            widget.delete("1.0", "end")
+        for entry in (self.phrase, self.near_a, self.near_b, self.name_entry, self.size_value, self.modified_value):
+            entry.delete(0, "end")
+        for variable in self.type_vars.values():
+            variable.set(False)
+        self.count_var.set("2")
+        self._metadata_rest.clear()
+        self._preview()
 
     def _accept(self) -> None:
         query, error = self._build_query()
         if error:
+            self.error_var.set(error)
             messagebox.showerror("条件エラー", error, parent=self.window)
             return
         if not query:
             messagebox.showinfo("条件が空です", "条件を1つ以上入力してください。", parent=self.window)
             return
         self._close(query)
+
+
+def _human_size(value: str) -> str:
+    """Render a byte count as the MB/KB form the size field expects."""
+    try:
+        size = int(value)
+    except ValueError:
+        return value
+    for unit, factor in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if size and size % factor == 0:
+            return f"{size // factor}{unit}"
+    return str(size)
+
+
+class FoldersDialog(Dialog):
+    """View / add / remove the search folders (v5.1 spec section 7)."""
+
+    def __init__(self, parent, *, roots: list[str]) -> None:
+        super().__init__(parent, "検索場所", width=620, height=360)
+        self.roots = list(roots)
+        body = ttk.Frame(self, padding=10)
+        body.pack(fill="both", expand=True)
+        ttk.Label(
+            body, text="検索するフォルダです。複数指定すると、まとめて検索します。"
+        ).pack(anchor="w")
+        list_frame = ttk.Frame(body)
+        list_frame.pack(fill="both", expand=True, pady=6)
+        self.listbox = tk.Listbox(list_frame, height=8, activestyle="dotbox")
+        scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=scroll.set)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(body, textvariable=self.status_var, foreground="#8a6d3b").pack(anchor="w")
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", pady=(4, 0))
+        ttk.Button(buttons, text="追加…", command=self._add).pack(side="left")
+        ttk.Button(buttons, text="削除", command=self._remove).pack(side="left", padx=4)
+        ttk.Button(buttons, text="上へ", command=lambda: self._move(-1)).pack(side="left", padx=4)
+        ttk.Button(buttons, text="下へ", command=lambda: self._move(1)).pack(side="left")
+        ttk.Button(buttons, text="OK", command=self._accept).pack(side="right")
+        ttk.Button(buttons, text="キャンセル", command=self._cancel).pack(side="right", padx=4)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        self.listbox.delete(0, "end")
+        missing = 0
+        for index, root in enumerate(self.roots):
+            exists = os.path.isdir(root)
+            if not exists:
+                missing += 1
+            label = root if exists else f"{root}   （見つかりません）"
+            self.listbox.insert("end", label)
+            if not exists:
+                self.listbox.itemconfigure(index, foreground="#a94442")
+        if missing:
+            self.status_var.set(f"{missing}件のフォルダが見つかりません（UNCやネットワーク未接続の可能性）")
+        else:
+            self.status_var.set("")
+
+    def _add(self) -> None:
+        initial = self.roots[-1] if self.roots else os.path.expanduser("~")
+        chosen = filedialog.askdirectory(initialdir=initial, title="検索場所に追加")
+        if not chosen:
+            return
+        chosen = os.path.normpath(chosen)
+        if any(os.path.normcase(root) == os.path.normcase(chosen) for root in self.roots):
+            self.status_var.set("すでに追加されています")
+            return
+        self.roots.append(chosen)
+        self._refresh()
+
+    def _remove(self) -> None:
+        selection = list(self.listbox.curselection())
+        for index in reversed(selection):
+            del self.roots[index]
+        self._refresh()
+
+    def _move(self, delta: int) -> None:
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        target = index + delta
+        if not 0 <= target < len(self.roots):
+            return
+        self.roots[index], self.roots[target] = self.roots[target], self.roots[index]
+        self._refresh()
+        self.listbox.selection_set(target)
+
+    def _accept(self) -> None:
+        self._close([root for root in self.roots if root])
 
 
 class AdvancedSettingsDialog(Dialog):

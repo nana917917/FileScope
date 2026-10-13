@@ -1,0 +1,31 @@
+{
+  "mode": "standard",
+  "query": "評価",
+  "runs": {
+    "1": {
+      "cpu_median": 3.6562,
+      "cpu_samples": [
+        3.6562,
+        3.5,
+        3.6719
+      ],
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "wall_median": 2.9569,
+      "wall_samples": [
+        2.9664,
+        2.8067,
+        2.9569
+      ]
+    }
+  },
+  "warmup": {
+    "cpu": 13.9844,
+    "first": 0.1554,
+    "hits": 10000,
+    "indexed": 10000,
+    "read": 0,
+    "wall": 8.388
+  }
+}

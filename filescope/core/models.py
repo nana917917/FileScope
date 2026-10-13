@@ -198,15 +198,80 @@ class Coverage:
             + (f" / エラー {self.errors:,}" if self.errors else "")
         )
 
+    def summary_line(self) -> str:
+        """Short end-of-search summary for the status bar."""
+        parts = [f"検索完了 {self.scanned:,}件"]
+        if self.skipped_type:
+            parts.append(f"対象外 {self.skipped_type:,}")
+        if self.skipped_online:
+            parts.append(f"未取得 {self.skipped_online:,}")
+        if self.skipped_size:
+            parts.append(f"サイズ超過 {self.skipped_size:,}")
+        if self.warnings:
+            parts.append(f"警告 {self.warnings:,}")
+        if self.errors:
+            parts.append(f"エラー {self.errors:,}")
+        if self.cancelled:
+            parts.append("中断")
+        return " / ".join(parts)
+
 
 @dataclass
 class Progress:
+    """What the UI shows while a search runs (spec section 11 of the v5.1 brief).
+
+    ``total_known`` is False during enumeration: the UI must show an
+    indeterminate bar and folder/file counts only, never a fake percentage.
+    """
+
     phase: str = "待機中"
     discovered: int = 0
     scanned: int = 0
     hit_files: int = 0
     active: tuple[str, ...] = ()
     detail: str = ""
+    folders_scanned: int = 0
+    discovery_done: bool = False
+    total_known: bool = False
+    active_file: str = ""
+    active_kind: str = ""
+    stalled_seconds: float = 0.0
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.discovered - self.scanned)
+
+    @property
+    def fraction(self) -> float | None:
+        """0.0-1.0 once the total is known, otherwise None (indeterminate)."""
+        if not self.total_known or self.discovered <= 0:
+            return None
+        return min(1.0, self.scanned / self.discovered)
+
+    def line(self) -> str:
+        """One-line summary for the status bar."""
+        if not self.discovery_done:
+            text = (
+                f"{self.phase} ｜ {self.folders_scanned:,}フォルダ確認"
+                f" ｜ {self.discovered:,}ファイル発見 ｜ {self.scanned:,}件処理済み"
+            )
+        else:
+            fraction = self.fraction
+            percent = f" ｜ {fraction * 100:.0f}%" if fraction is not None else ""
+            text = (
+                f"{self.phase} ｜ {self.scanned:,} / {self.discovered:,}件{percent}"
+                f" ｜ {self.hit_files:,}資料ヒット"
+            )
+        if self.active_file:
+            text += f" ｜ 処理中: {self.active_file}"
+        if self.stalled_seconds >= STALLED_AFTER_SECONDS:
+            text += f" ｜ 処理に時間がかかっています（{self.stalled_seconds:.0f}秒）"
+        return text
+
+
+#: After this long without a completed file the UI says so (it never pretends
+#: the search has stopped, it only reports that the current work is slow).
+STALLED_AFTER_SECONDS = 15.0
 
 
 @dataclass

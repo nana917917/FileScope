@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -25,7 +24,7 @@ pytestmark = pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptio
 from filescope import paths  # noqa: E402
 from filescope.config import Settings  # noqa: E402
 from filescope.ui import results as results_module  # noqa: E402
-from filescope.ui.main_window import MainWindow, write_results_csv  # noqa: E402
+from filescope.ui.main_window import MainWindow, _bounded_layout_value, write_results_csv  # noqa: E402
 from tools.make_corpus import build_corpus  # noqa: E402
 
 
@@ -46,27 +45,21 @@ def _ensure(base: Path, name: str) -> Path:
     return target
 
 
-@pytest.fixture(scope="module")
-def tk_session_root():
-    """One Tk root for the whole module (creating several roots is flaky)."""
-    try:
-        root = tk.Tk()
-    except tk.TclError:  # pragma: no cover - headless
-        pytest.skip("Tk display unavailable")
-    root.withdraw()
-    yield root
+
+def shutdown(window) -> None:
+    """Close a test window without destroying the session-shared Tk root."""
+    from contextlib import suppress
+
+    if window.session is not None and not window.session.finished:
+        window.session.cancel()
+        window.session.wait(5)
+    with suppress(Exception):
+        window.ocr_cache.close()
+    if window.database is not None:
+        with suppress(Exception):
+            window.database.close()
     with suppress(tk.TclError):
-        root.destroy()
-
-
-@pytest.fixture
-def tk_root(tk_session_root):
-    for child in tk_session_root.winfo_children():
-        child.destroy()
-    yield tk_session_root
-    tk_session_root.update()
-    for child in tk_session_root.winfo_children():
-        child.destroy()
+        window.destroy()
 
 
 def pump(root, seconds: float) -> None:
@@ -77,6 +70,17 @@ def pump(root, seconds: float) -> None:
 
 
 class TestMainWindow:
+    def test_invalid_saved_layout_values_fall_back_to_defaults(self, tk_root, isolated_paths) -> None:
+        settings = Settings()
+        settings.index_enabled = False
+        settings.window = {"column_name": "bad-width", "preview_ratio_per_mille": None}
+
+        window = MainWindow(tk_root, settings=settings)
+        assert int(window.tree.column("name", "width")) == 180
+        assert _bounded_layout_value(settings, "preview_ratio_per_mille", 360, 200, 700) == 360
+        settings.window["preview_ratio_per_mille"] = 900
+        assert _bounded_layout_value(settings, "preview_ratio_per_mille", 360, 200, 700) == 700
+
     def test_window_builds_and_searches(self, tk_root, tmp_path, isolated_paths) -> None:
         corpus = build_corpus(tmp_path / "corpus", with_ocr_image=False)
         settings = Settings()
@@ -117,7 +121,7 @@ class TestMainWindow:
         pump(tk_root, 2.0)
         assert window.preview.text.get("1.0", "end").strip()
 
-    def test_refine_filters_without_new_search(self, tk_root, tmp_path, isolated_paths) -> None:
+    def test_search_two_reruns_search_one_and_second_condition(self, tk_root, tmp_path, isolated_paths) -> None:
         corpus = build_corpus(tmp_path / "corpus3", with_ocr_image=False)
         settings = Settings()
         settings.index_enabled = False
@@ -133,11 +137,27 @@ class TestMainWindow:
                 break
         pump(tk_root, 0.5)
         before = len(window.model.visible)
+        first_session = window.session
         window._refine_var.set("電源")
         window.apply_refine()
-        pump(tk_root, 0.3)
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        assert window.session is not first_session
+        assert window.session.config.query == "(AAA) & (電源)"
         assert len(window.model.visible) <= before
         window.clear_refine()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
         assert len(window.model.visible) == before
 
     def test_condition_builder_produces_query(self) -> None:
@@ -186,6 +206,95 @@ class TestExports:
 
 
 class TestAcceptance:
+    def test_multiple_search_folders(self, tk_root, tmp_path, isolated_paths) -> None:
+        first = tmp_path / "one"
+        second = tmp_path / "two"
+        first.mkdir()
+        second.mkdir()
+        (first / "a.txt").write_text("AAA\n", encoding="utf-8")
+        (second / "b.txt").write_text("AAA\n", encoding="utf-8")
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(f"{first}; {second}")
+        window._sync_state()
+        assert window.state.roots() == (str(first), str(second))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        assert {row.result.name for row in window.model.all_rows} == {"a.txt", "b.txt"}
+
+    def test_folders_dialog_deduplicates(self, tk_root, tmp_path) -> None:
+        from filescope.ui.dialogs import FoldersDialog
+
+        first = tmp_path / "x"
+        first.mkdir()
+        dialog = FoldersDialog(tk_root, roots=[str(first)])
+        dialog.roots.append(str(first))
+        dialog._refresh()
+        assert dialog.listbox.size() == 2
+        dialog._remove()
+        dialog.window.destroy()
+
+    def test_progress_bar_modes(self, tk_root, tmp_path, isolated_paths) -> None:
+        """Indeterminate while enumerating, determinate once the total is known."""
+        from filescope.core.models import Progress
+
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window._start_progress()
+        assert str(window.progress_bar.cget("mode")) == "indeterminate"
+        window._apply_progress(Progress(phase="検索しています", discovered=10, scanned=5, discovery_done=True, total_known=True))
+        assert str(window.progress_bar.cget("mode")) == "determinate"
+        assert float(str(window.progress_bar.cget("value"))) == 50.0
+        window._apply_progress(Progress(phase="フォルダを確認しています", discovered=3, scanned=1))
+        assert str(window.progress_bar.cget("mode")) == "indeterminate"
+        shutdown(window)
+        _ = isolated_paths
+
+    def test_search_button_state_during_and_after_search(self, tk_root, tmp_path, isolated_paths) -> None:
+        corpus = build_corpus(tmp_path / "state-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        assert str(window.search_button.cget("state")) == "normal"
+        window.start_search()
+        assert str(window.search_button.cget("state")) == "disabled"
+        assert str(window.cancel_button.cget("state")) == "normal"
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        assert str(window.search_button.cget("state")) == "normal"
+        assert str(window.cancel_button.cget("state")) == "disabled"
+
+    def test_query_error_restores_the_ui(self, tk_root, tmp_path, isolated_paths) -> None:
+        corpus = build_corpus(tmp_path / "error-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA & (")
+        window.start_search()
+        for _ in range(40):
+            tk_root.update()
+            time.sleep(0.03)
+        assert str(window.search_button.cget("state")) == "normal"
+        assert str(window.cancel_button.cget("state")) == "disabled"
+        assert "検索式エラー" in window._status_text.get()
+
     def test_corrupt_index_falls_back_to_direct_search(self, tk_root, tmp_path, isolated_paths) -> None:
         """A damaged index database must not stop FileScope from starting."""
         index_file = Path(paths.index_path())
@@ -234,3 +343,117 @@ class TestAcceptance:
         assert len(window.model.visible) == 3000
         # Only a window of rows may exist in the widget at any time.
         assert len(window.tree.get_children()) <= results_module.WINDOW_ROWS
+
+    def test_rerender_keeps_the_previewed_row_selected(self, tk_root, tmp_path, isolated_paths) -> None:
+        """Rebuilding the list mid-search must not throw the preview away."""
+        corpus = build_corpus(tmp_path / "anchor-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        rows = window.tree.get_children()
+        assert rows
+        window.tree.selection_set(rows[0])
+        pump(tk_root, 1.0)
+        anchor = window.preview.current_path
+        assert anchor, "the preview should be showing the selected file"
+
+        window._render_results()
+        pump(tk_root, 0.2)
+        selection = window.tree.selection()
+        assert len(selection) == 1
+        row = window.model.row_at(int(selection[0]))
+        assert row is not None and row.result.path == anchor
+        assert window.preview.current_path == anchor
+        shutdown(window)
+
+    def test_lost_selection_does_not_clear_the_preview(self, tk_root, tmp_path, isolated_paths) -> None:
+        corpus = build_corpus(tmp_path / "anchor2-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 1.0)
+        rows = window.tree.get_children()
+        window.tree.selection_set(rows[0])
+        pump(tk_root, 1.0)
+        anchor = window.preview.current_path
+        assert anchor
+        # Tk reports the selection a redraw drops as a select event; the pane
+        # must keep showing the file the user picked.
+        for item in window.tree.get_children():
+            window.tree.delete(item)
+        pump(tk_root, 0.3)
+        window._on_select()
+        assert window.preview.current_path == anchor
+        shutdown(window)
+
+    def test_reselecting_the_same_file_does_not_reload_the_preview(
+        self, tk_root, tmp_path, isolated_paths
+    ) -> None:
+        corpus = build_corpus(tmp_path / "anchor3-corpus", with_ocr_image=False)
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.root_var.set(str(corpus.root))
+        window.query_var.set("AAA")
+        window.start_search()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 1.0)
+        rows = window.tree.get_children()
+        window.tree.selection_set(rows[0])
+        pump(tk_root, 1.0)
+        loads: list[str] = []
+        original = window.preview.show
+
+        def record(result, config, **kwargs):
+            loads.append(result.path)
+            return original(result, config, **kwargs)
+
+        window.preview.show = record  # type: ignore[method-assign]
+        window._on_select()
+        window._on_select()
+        assert loads == []
+        other = window.tree.get_children()[1]
+        window.tree.selection_set(other)
+        window._on_select()
+        assert len(loads) == 1
+        shutdown(window)
+
+    def test_list_refresh_is_throttled_while_results_stream(self, tk_root, isolated_paths) -> None:
+        class _Running:
+            finished = False
+
+        settings = Settings()
+        settings.index_enabled = False
+        window = MainWindow(tk_root, settings=settings)
+        window.session = _Running()  # type: ignore[assignment]
+        window._last_render_at = time.perf_counter()
+        assert window._list_refresh_due() is False
+        window._last_render_at -= 10.0
+        assert window._list_refresh_due() is True
+        window.session = None
+        assert window._list_refresh_due() is True
+        shutdown(window)

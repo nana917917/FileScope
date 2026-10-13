@@ -15,6 +15,7 @@ Design rules that the code below enforces:
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
@@ -134,6 +135,14 @@ class SearchSession:
         )
         self.coverage = Coverage()
         self._lock = threading.Lock()
+        # Index reads are pure Python + sqlite3 fetches. They cannot overlap
+        # usefully (the GIL serialises them) but they *can* make each other much
+        # slower: measured on an 8-core host, serving 2,000 small files from a
+        # warm index took 0.52 s with one worker and 1.70 s with four, while
+        # burning 5x the CPU. One worker at a time inside the index is
+        # therefore both faster and cheaper; file extraction keeps using the
+        # full pool.
+        self._index_lock = threading.Lock()
         self._results: list[FileResult] = []
         self._issues: list[Issue] = []
         self._threads: list[threading.Thread] = []
@@ -143,6 +152,13 @@ class SearchSession:
         self._searcher: IndexSearcher | None = None
         self._session_started = 0.0
         self._last_progress = 0.0
+        self._folders_scanned = 0
+        self._discovery_done = False
+        self._pdf_active = False
+        self._index_active = False
+        self._last_scanned_at = 0
+        self._last_file_finished = 0.0
+        self._active_files: dict[int, tuple[str, float, str]] = {}
         self._finished = threading.Event()
         self.summary: Summary | None = None
         self.matcher: QueryMatcher | None = None
@@ -156,6 +172,20 @@ class SearchSession:
         except QuerySyntaxError as exc:
             self._query_error = exc
             self.events.put(events.QueryFailed(message=exc.message, position=exc.position, query=self.config.query))
+            self._finished.set()
+            return
+        except Exception as exc:  # never leave the UI waiting on an unhandled error
+            log.exception("query preparation failed: %s", exc)
+            self._query_error = QuerySyntaxError(
+                f"検索式を準備できませんでした（{type(exc).__name__}）。条件を簡単にしてもう一度お試しください", 0
+            )
+            self.events.put(
+                events.QueryFailed(
+                    message=self._query_error.message,
+                    position=0,
+                    query=self.config.query,
+                )
+            )
             self._finished.set()
             return
 
@@ -251,6 +281,8 @@ class SearchSession:
                     break
                 keys = per_root_keys.setdefault(root, set())
                 complete = True
+                with self._lock:
+                    self._folders_scanned += 1
                 for item in iter_entries(
                     root,
                     include_subfolders=self.config.include_subfolders,
@@ -273,9 +305,13 @@ class SearchSession:
                         complete = False
                     if discovered % 500 == 0:
                         self.events.put(events.Discovered(count=discovered, root=root))
+                        self._touch_progress()
                     self._dispatch(item)
                 self._cleanup_index(root, keys, complete=complete)
         finally:
+            with self._lock:
+                self._discovery_done = True
+            self._touch_progress(force=True)
             for _ in range(max(1, self.config.workers)):
                 self._general_queue.put(_SENTINEL)
             self._pdf_queue.put(_SENTINEL)
@@ -356,6 +392,20 @@ class SearchSession:
 
     # ------------------------------------------------------------ per file
     def _process(self, entry: FileEntry) -> None:
+        """Bookkeeping wrapper so the UI can show what is being worked on."""
+        worker = threading.get_ident()
+        kind = classify_kind(entry.extension).value
+        with self._lock:
+            self._active_files[worker] = (entry.path, time.time(), kind)
+        try:
+            self._process_file(entry)
+        finally:
+            with self._lock:
+                self._active_files.pop(worker, None)
+                self._last_file_finished = time.time()
+            self._touch_progress()
+
+    def _process_file(self, entry: FileEntry) -> None:
         kind = classify_kind(entry.extension)
         if kind not in self.config.included_kinds():
             with self._lock:
@@ -381,7 +431,13 @@ class SearchSession:
             return
 
         key = normalized_key(entry.path)
-        indexed = self._indexed_and_current(entry)
+        indexed = False
+        if self.database is not None:
+            # Serialised for the same reason as the verdict below: concurrent
+            # sqlite3 fetches from several threads cost far more CPU and wall
+            # time than the same fetches run one after another.
+            with self._index_lock:
+                indexed = self._indexed_and_current(entry)
         decision = onedrive.decide(
             entry,
             mode=self.config.mode,
@@ -406,8 +462,16 @@ class SearchSession:
                     self.coverage.scanned += 1
                 self._touch_progress()
                 return
-            if self._evaluate_from_index(entry, kind):
-                return
+            # Serialised on purpose: see the note on ``_index_lock``.
+            with self._index_lock:
+                with self._lock:
+                    self._index_active = True
+                try:
+                    if self._evaluate_from_index(entry, kind):
+                        return
+                finally:
+                    with self._lock:
+                        self._index_active = False
 
         self._read_and_match(entry, kind)
 
@@ -473,6 +537,15 @@ class SearchSession:
 
     def _read_and_match(self, entry: FileEntry, kind: FileKind) -> None:
         assert self.matcher is not None
+        with self._lock:
+            self._pdf_active = kind is FileKind.PDF
+        try:
+            self._read_and_match_inner(entry, kind)
+        finally:
+            with self._lock:
+                self._pdf_active = False
+
+    def _read_and_match_inner(self, entry: FileEntry, kind: FileKind) -> None:
         indexing = self.database is not None and self.config.mode != "fast"
         state = self.matcher.make_state(entry, flags=self._flags(entry))
         buffered: list[Chunk] | None = [] if indexing else None
@@ -499,6 +572,7 @@ class SearchSession:
             self._feed_name_and_path(sink, entry)
             if buffered is None and state.finish() is Outcome.ACCEPT:
                 stopped_early = True
+                partial_hits = True
         except StopExtraction:
             stopped_early = True
 
@@ -693,15 +767,45 @@ class SearchSession:
             if not force and now - self._last_progress < 0.2:
                 return
             self._last_progress = now
+            if self.coverage.scanned != self._last_scanned_at:
+                self._last_scanned_at = self.coverage.scanned
+                self._last_file_finished = now
+            active_file = ""
+            active_kind = ""
+            if self._active_files:
+                path, started, kind = max(self._active_files.values(), key=lambda item: item[1])
+                active_file = os.path.basename(path)
+                active_kind = kind
+                stalled = now - started
+            else:
+                stalled = now - self._last_file_finished if self._last_file_finished else 0.0
             progress = Progress(
-                phase="検索中" if not self.cancel_event.is_set() else "中断",
+                phase=self._phase_locked(),
                 discovered=self.coverage.discovered,
                 scanned=self.coverage.scanned,
                 hit_files=self.coverage.hits,
+                folders_scanned=self._folders_scanned,
+                discovery_done=self._discovery_done,
+                total_known=self._discovery_done,
+                active_file=active_file,
+                active_kind=active_kind,
+                stalled_seconds=max(0.0, stalled),
             )
             coverage = replace(self.coverage)
         self._push(events.Progressed(progress=progress), droppable=True)
         self._push(events.CoverageChanged(coverage=coverage), droppable=True)
+
+    def _phase_locked(self) -> str:
+        """Coarse phase label; never claims progress it cannot prove."""
+        if self.cancel_event.is_set():
+            return "中断しています"
+        if not self._discovery_done:
+            return "フォルダを確認しています"
+        if self._pdf_active:
+            return "PDFの文字を読み取っています"
+        if self._index_active:
+            return "保存済みの検索情報を確認しています"
+        return "検索しています"
 
     def _push(self, event: object, *, droppable: bool = False) -> None:
         """Push an event; progress events are dropped rather than blocking.

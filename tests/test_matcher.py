@@ -86,6 +86,23 @@ class TestOperatorSemantics:
         assert evaluate("2of(A,B,C)", [("A", ChunkKind.LINE, "1"), ("C", ChunkKind.LINE, "2")])[0] is Outcome.ACCEPT
         assert evaluate("2of(A,B,C)", [("A", ChunkKind.LINE, "1")])[0] is Outcome.REJECT
 
+    def test_n_of_result_distinguishes_unconfirmed_from_nonmatching_terms(self) -> None:
+        outcome, state = evaluate(
+            "2of(耐久,温度,振動)",
+            [("耐久", ChunkKind.LINE, "1"), ("振動", ChunkKind.LINE, "2")],
+        )
+
+        assert outcome is Outcome.ACCEPT
+        state.hit_count_exact = False  # JIT stopped after the threshold was met.
+        assert state.displays() == ("一致:耐久、振動 / 未確認:温度（2/3以上）",)
+
+        complete = QueryMatcher(parse_query("2of(耐久,温度,振動)"), MatchOptions()).make_state(entry())
+        complete.feed(Chunk(text="耐久", kind=ChunkKind.LINE, location="1"))
+        complete.feed(Chunk(text="振動", kind=ChunkKind.LINE, location="2"))
+        complete.feed(Chunk(text="ここで読み終わり", kind=ChunkKind.LINE, location="3"))
+        complete.finish()
+        assert complete.displays() == ("一致:耐久、振動 / 未一致:温度（2/3）",)
+
     def test_not_requires_end_of_file(self) -> None:
         outcome, _ = evaluate("A & !B", [("A", ChunkKind.LINE, "1"), ("B", ChunkKind.LINE, "2")])
         assert outcome is Outcome.REJECT

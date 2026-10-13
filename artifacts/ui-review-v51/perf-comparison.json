@@ -1,0 +1,24 @@
+{
+  "v5_0_0": {
+    "direct_seconds_median": 2.064,
+    "first_result_seconds_min": 0.0083,
+    "index_build_seconds_median": 10.361,
+    "index_repeat_seconds_median": 2.127,
+    "short_term_seconds_median": 2.032,
+    "selective_direct_seconds_median": 1.3,
+    "selective_index_seconds_median": 0.558,
+    "documents_index_seconds_min": 0.159,
+    "peak_rss_mb": 93.6
+  },
+  "v5_1_rc1": {
+    "direct_seconds_median": 2.138,
+    "first_result_seconds_min": 0.0079,
+    "index_build_seconds_median": 9.414,
+    "index_repeat_seconds_median": 2.174,
+    "short_term_seconds_median": 2.059,
+    "selective_direct_seconds_median": 1.161,
+    "selective_index_seconds_median": 0.545,
+    "documents_index_seconds_min": 0.15,
+    "peak_rss_mb": 93.7
+  }
+}

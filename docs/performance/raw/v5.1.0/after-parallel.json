@@ -1,0 +1,226 @@
+{
+  "corpus": "_scratch\\perf\\corpus2000",
+  "enumeration": {
+    "files": 2000,
+    "seconds": 0.0911
+  },
+  "root": "E:\\07_Program\\FileScope",
+  "runs": {
+    "cancel": {
+      "cancel_latency_seconds": 0.0009,
+      "coverage": "発見 204 / 検索完了 123 / Hit 120資料 / 索引 0 / 実読込 123 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 204,
+      "files_scanned": 123,
+      "first_result_seconds": 0.0033,
+      "hits": 120,
+      "index": false,
+      "indexed_files": 0,
+      "mode": "standard",
+      "peak_rss_bytes": 45629440,
+      "query": "評価",
+      "read_files": 123,
+      "samples": [
+        0.0516,
+        0.0514,
+        0.0511
+      ],
+      "seconds": 0.0514
+    },
+    "cancel_index": {
+      "cancel_latency_seconds": 0.0023,
+      "coverage": "発見 92 / 検索完了 26 / Hit 26資料 / 索引 26 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 92,
+      "files_scanned": 26,
+      "first_result_seconds": 0.0367,
+      "hits": 26,
+      "index": true,
+      "indexed_files": 26,
+      "mode": "standard",
+      "peak_rss_bytes": 45780992,
+      "query": "評価",
+      "read_files": 0,
+      "samples": [
+        0.0,
+        0.0523,
+        0.0528
+      ],
+      "seconds": 0.0523
+    },
+    "combined": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 286資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0538,
+      "hits": 286,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "standard",
+      "peak_rss_bytes": 45506560,
+      "query": "((評価)) & ((BBB 電源))",
+      "read_files": 0,
+      "samples": [
+        0.9198,
+        0.8396,
+        0.847
+      ],
+      "seconds": 0.847
+    },
+    "direct": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 0 / 実読込 2,000 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0026,
+      "hits": 2000,
+      "index": false,
+      "indexed_files": 0,
+      "mode": "standard",
+      "peak_rss_bytes": 41005056,
+      "query": "評価",
+      "read_files": 2000,
+      "samples": [
+        0.6511,
+        0.6538,
+        0.6487
+      ],
+      "seconds": 0.6511
+    },
+    "fast": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0325,
+      "hits": 2000,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "fast",
+      "peak_rss_bytes": 45629440,
+      "query": "評価",
+      "read_files": 0,
+      "samples": [
+        0.6505,
+        0.6723,
+        0.6871
+      ],
+      "seconds": 0.6723
+    },
+    "standard_first": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0308,
+      "hits": 2000,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "standard",
+      "peak_rss_bytes": 45051904,
+      "query": "評価",
+      "read_files": 0,
+      "samples": [
+        8.948,
+        0.7,
+        0.7106
+      ],
+      "seconds": 0.7106
+    },
+    "standard_minimal": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 286資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0087,
+      "hits": 286,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "standard",
+      "peak_rss_bytes": 45330432,
+      "query": "BBB",
+      "read_files": 0,
+      "samples": [
+        0.3614,
+        0.4245,
+        0.3645
+      ],
+      "seconds": 0.3645
+    },
+    "standard_repeat": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0317,
+      "hits": 2000,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "standard",
+      "peak_rss_bytes": 45252608,
+      "query": "評価",
+      "read_files": 0,
+      "samples": [
+        0.7255,
+        0.6495,
+        0.671
+      ],
+      "seconds": 0.671
+    }
+  },
+  "stages": {
+    "classify_kind": {
+      "calls": 109928,
+      "seconds": 0.13825690041994676
+    },
+    "extract": {
+      "calls": 8351,
+      "seconds": 7.896504698379431
+    },
+    "extractor_for": {
+      "calls": 36466,
+      "seconds": 0.08726459840545431
+    },
+    "index.candidate_files": {
+      "calls": 18,
+      "seconds": 0.4422347999934573
+    },
+    "index.evaluate": {
+      "calls": 22973,
+      "seconds": 4.813329802709632
+    },
+    "index.file_row": {
+      "calls": 22973,
+      "seconds": 0.5933666010969318
+    },
+    "index.indexed_paths_under": {
+      "calls": 15,
+      "seconds": 0.1676016000274103
+    },
+    "index.known_count": {
+      "calls": 18,
+      "seconds": 0.0011246999492868781
+    },
+    "index.needs_update": {
+      "calls": 30115,
+      "seconds": 1.209849098668201
+    },
+    "index.store_file": {
+      "calls": 2000,
+      "seconds": 33.67018940005801
+    },
+    "session.emit_result": {
+      "calls": 26172,
+      "seconds": 0.9393148023518734
+    },
+    "session.prepare_candidates": {
+      "calls": 24,
+      "seconds": 0.5041842000209726
+    },
+    "session.read_and_match": {
+      "calls": 8351,
+      "seconds": 43.607821998914005
+    },
+    "session.store_index": {
+      "calls": 2000,
+      "seconds": 33.68715489920578
+    },
+    "session.touch_progress": {
+      "calls": 73028,
+      "seconds": 0.07205500235431828
+    }
+  }
+}

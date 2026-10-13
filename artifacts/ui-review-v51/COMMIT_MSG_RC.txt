@@ -1,0 +1,16 @@
+chore(release): v5.1.0-rc1 docs, performance record and RC zip
+
+Adds docs/V5.1_CHANGES.md (bug analysis, UI changes, performance comparison
+measured against v5.0.0 on the same machine, distribution sizes, known
+limitations and the extra points to check on a real PC), updates README with the
+new mode descriptions, progress display, condition-builder field table and the
+PDF page view, and records the v5.0.0-vs-v5.1 benchmark (three runs each) in
+artifacts/ui-review-v51/.
+
+Version strings move to 5.1.0-rc1. The RC portable build is
+dist/FileScope-v5.1.0-rc1-win64.zip (31.94 MB, bundle 63.9 MB, +0.2% vs
+v5.0.0); the portable smoke test passes 6/6 including source-vs-frozen result
+equivalence and a redirected LOCALAPPDATA.
+
+Before/after GUI screenshots for the same corpus live in
+artifacts/ui-review-v51/{before,after}/.

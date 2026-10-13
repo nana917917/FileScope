@@ -75,14 +75,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_gui(settings: Settings) -> int:
+    started = time.perf_counter()
     import tkinter as tk
 
     from .platform import tesseract as tesseract_module
     from .platform.tempfiles import purge_stale
     from .ui.main_window import MainWindow
 
+    imported_at = time.perf_counter()
+
     purge_stale()
+    purged_at = time.perf_counter()
     ocr_status = tesseract_module.probe()
+    probed_at = time.perf_counter()
+    log.info(
+        "startup phases: ui_import=%.3fs temp_cleanup=%.3fs ocr_probe=%.3fs",
+        imported_at - started,
+        purged_at - imported_at,
+        probed_at - purged_at,
+    )
     log.info("starting FileScope %s (OCR: %s)", __version__, ocr_status.message or "unknown")
 
     root = tk.Tk()
@@ -95,6 +106,11 @@ def run_gui(settings: Settings) -> int:
 
     window = MainWindow(root, settings=settings, ocr_status=ocr_status)
     root.protocol("WM_DELETE_WINDOW", window.on_close)
+
+    def log_first_idle() -> None:
+        log.info("startup ready: first_ui_idle=%.3fs", time.perf_counter() - started)
+
+    root.after_idle(log_first_idle)
 
     def on_configure(event) -> None:
         if event.widget is root:

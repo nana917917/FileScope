@@ -155,6 +155,17 @@ TYPE_VALUES = {
 
 SOURCE_VALUES = {"local", "smb", "onedrive", "removable", "unknown"}
 
+#: Canonical extension groups shared by `type:` matching and the condition
+#: builder, so the builder can round-trip `type:pdf` as `ext:pdf` (same files).
+TYPE_EXTENSION_MAP: dict[str, tuple[str, ...]] = {
+    "pdf": (".pdf",),
+    "excel": (".xlsx", ".xlsm", ".xltx", ".xltm", ".xls", ".xlsb"),
+    "word": (".docx", ".docm"),
+    "ppt": (".pptx", ".pptm"),
+    "text": (".txt", ".csv", ".tsv", ".log", ".md"),
+    "archive": (".zip",),
+}
+
 SIZE_UNITS = {
     "": 1,
     "b": 1,
@@ -231,10 +242,16 @@ def tokenize(text: str) -> list[_Token]:
             end = i + 1
             buffer: list[str] = []
             while end < length:
-                if text[end] == "\\" and end + 1 < length and text[end + 1] == '"':
-                    buffer.append('"')
-                    end += 2
-                    continue
+                if text[end] == "\\" and end + 1 < length:
+                    following = text[end + 1]
+                    if following == '"':
+                        buffer.append('"')
+                        end += 2
+                        continue
+                    if following == "\\":
+                        buffer.append("\\")
+                        end += 2
+                        continue
                 if text[end] == '"':
                     break
                 buffer.append(text[end])
@@ -594,8 +611,28 @@ def parse_query(text: str, *, legacy_operator: str = "OR") -> Node | None:
     stripped = text.strip()
     if not stripped:
         return None
+    if len(stripped) > MAX_QUERY_CHARS:
+        raise QuerySyntaxError(
+            f"検索式が長すぎます（{MAX_QUERY_CHARS:,}文字まで）。条件を分割してください", MAX_QUERY_CHARS
+        )
+    if stripped.count("(") > MAX_QUERY_DEPTH or stripped.count(")") > MAX_QUERY_DEPTH:
+        raise QuerySyntaxError(
+            f"括弧が多すぎます（{MAX_QUERY_DEPTH}個まで）。条件を整理してください", 0
+        )
     normalized = normalize.fold_operators(stripped)
-    return _Parser(normalized, legacy_operator=legacy_operator).parse()
+    try:
+        return _Parser(normalized, legacy_operator=legacy_operator).parse()
+    except RecursionError as exc:
+        # A pathological expression must surface as a normal query error, not as
+        # an unhandled exception that leaves the UI stuck in "searching".
+        raise QuerySyntaxError(
+            "検索式の入れ子が深すぎます。括弧の使い方を見直してください", 0
+        ) from exc
+
+
+#: Guards so a hostile/pasted expression cannot exhaust the stack or memory.
+MAX_QUERY_CHARS = 20_000
+MAX_QUERY_DEPTH = 200
 
 
 # ------------------------------------------------------------------ utilities
@@ -688,7 +725,10 @@ def to_query_string(node: Node | None) -> str:
         return ""
     if isinstance(node, Term):
         if node.phrase or any(ch in node.text for ch in " ()&|!,\";"):
-            return '"' + node.text.replace('"', '\\"') + '"'
+            escaped = node.text.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
+        # A bare word keeps backslashes literally (Windows paths, regex-ish
+        # part numbers); only quoted output needs escaping.
         return node.text
     if isinstance(node, Meta):
         return node.display()
@@ -726,22 +766,37 @@ class BuilderGroups:
     near_b: str = ""
     near_distance: int = 100
     metadata: list[str] = field(default_factory=list)
+    #: Expression kept verbatim because the builder cannot represent it.
+    advanced: str = ""
 
     def build(self) -> Node | None:
         parts: list[Node] = []
+        if self.advanced.strip():
+            try:
+                advanced_node = parse_query(self.advanced)
+            except QuerySyntaxError:
+                # The dialog reports the error; building must stay non-fatal so
+                # a broken 詳細式 never blocks the rest of the conditions.
+                advanced_node = None
+            if advanced_node is not None:
+                parts.append(advanced_node)
         if self.all_of:
-            parts.append(And(tuple(Term(t) for t in self.all_of if t.strip())))
+            parts.append(_group(And, [Term(clean_literal(t)) for t in self.all_of if t.strip()]))
         if self.any_of:
-            parts.append(Or(tuple(Term(t) for t in self.any_of if t.strip())))
-        terms_n = [t for t in self.n_of if t.strip()]
+            parts.append(_group(Or, [Term(clean_literal(t)) for t in self.any_of if t.strip()]))
+        terms_n = [clean_literal(t) for t in self.n_of if t.strip()]
         if terms_n and self.n_of_count > 0:
             parts.append(NOf(min(self.n_of_count, len(terms_n)), tuple(Term(t) for t in terms_n)))
         for phrase in self.phrases:
             if phrase.strip():
-                parts.append(Term(phrase.strip(), phrase=True))
+                parts.append(Term(clean_literal(phrase), phrase=True))
         if self.near_a.strip() and self.near_b.strip():
             parts.append(
-                Near(Term(self.near_a.strip()), Term(self.near_b.strip()), max(1, int(self.near_distance)))
+                Near(
+                    Term(clean_literal(self.near_a)),
+                    Term(clean_literal(self.near_b)),
+                    max(1, int(self.near_distance)),
+                )
             )
         for meta in self.metadata:
             parsed = parse_query(meta)
@@ -753,6 +808,151 @@ class BuilderGroups:
         for term in self.none_of:
             if not term.strip():
                 continue
-            negated = Not(Term(term.strip()))
+            negated = Not(Term(clean_literal(term)))
             node = negated if node is None else And((node, negated))
         return node
+
+
+def _group(kind: type, children: list[Node]) -> Node:
+    """A one-item group collapses to the item, so expressions stay readable."""
+    if len(children) == 1:
+        return children[0]
+    return kind(tuple(children))
+
+
+_PAIRED_QUOTES = {
+    '"': '"',
+    "'": "'",
+    "\u201c": "\u201d",   # “ ”
+    "\u300c": "\u300d",   # 「 」
+}
+
+
+def clean_literal(text: str) -> str:
+    """Normalise one builder field value into the literal the user meant.
+
+    Users type quoted values (``"ABC-123"``) and also paste whole conditions.
+    Surrounding quotes are therefore removed; any quote left inside the value is
+    escaped later by :func:`to_query_string`, so the generated expression always
+    parses back to the same literal instead of a phrase containing quotes.
+    """
+    value = str(text or "").strip()
+    if len(value) >= 2:
+        closing = _PAIRED_QUOTES.get(value[0])
+        if closing and value.endswith(closing):
+            inner = value[1:-1].strip()
+            if inner:
+                return inner
+    return value
+
+
+def parse_into_groups(node: Node | None) -> BuilderGroups:
+    """Fill builder fields from an existing query so editing round-trips.
+
+    Anything the builder cannot express is kept verbatim in ``advanced``.
+    """
+    groups = BuilderGroups()
+    if node is None:
+        return groups
+    conjuncts: list[Node]
+    if isinstance(node, And):
+        conjuncts = list(node.children)
+    elif isinstance(node, Or) and all(
+        isinstance(child, Term) and not child.phrase for child in node.children
+    ):
+        groups.any_of = [child.text for child in node.children if isinstance(child, Term)]
+        return groups
+    else:
+        conjuncts = [node]
+
+    leftovers: list[Node] = []
+    for child in conjuncts:
+        if isinstance(child, Term):
+            (groups.phrases if child.phrase else groups.all_of).append(child.text)
+        elif isinstance(child, Not) and isinstance(child.child, Term):
+            groups.none_of.append(child.child.text)
+        elif isinstance(child, Or) and all(
+            isinstance(item, Term) and not item.phrase for item in child.children
+        ):
+            groups.any_of.extend(item.text for item in child.children if isinstance(item, Term))
+        elif isinstance(child, NOf) and not groups.n_of and all(
+            isinstance(item, Term) for item in child.children
+        ):
+            groups.n_of_count = child.count
+            groups.n_of = [item.text for item in child.children if isinstance(item, Term)]
+        elif (
+            isinstance(child, Near)
+            and isinstance(child.left, Term)
+            and isinstance(child.right, Term)
+            and not groups.near_a
+        ):
+            groups.near_a = child.left.text
+            groups.near_b = child.right.text
+            groups.near_distance = child.distance
+        elif isinstance(child, Meta):
+            groups.metadata.append(child.display())
+        else:
+            leftovers.append(child)
+    if leftovers:
+        # Keep the exact expression for anything the fields cannot express
+        # (for example a phrase inside an OR, where quoting must survive).
+        groups.advanced = " & ".join(to_query_string(part) for part in leftovers)
+    return groups
+
+
+def equivalent(left: Node | None, right: Node | None) -> bool:
+    """True when two ASTs mean the same thing.
+
+    AND/OR children are order-insensitive (the matcher evaluates them with
+    ``all``/``any``), which is what the condition builder round-trip needs to
+    guarantee: fields may be regrouped, the meaning may not change.
+    """
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, Term) and isinstance(right, Term):
+        return left.text == right.text and left.phrase == right.phrase
+    if isinstance(left, Meta) and isinstance(right, Meta):
+        if (left.field, left.op, left.value) == (right.field, right.op, right.value):
+            return True
+        left_extensions = _extension_set(left)
+        right_extensions = _extension_set(right)
+        return left_extensions is not None and left_extensions == right_extensions
+    if isinstance(left, Not) and isinstance(right, Not):
+        return equivalent(left.child, right.child)
+    if isinstance(left, And) and isinstance(right, And):
+        return _same_members(left.children, right.children)
+    if isinstance(left, Or) and isinstance(right, Or):
+        return _same_members(left.children, right.children)
+    if isinstance(left, NOf) and isinstance(right, NOf):
+        return left.count == right.count and _same_members(left.children, right.children)
+    if isinstance(left, Near) and isinstance(right, Near):
+        return (
+            left.distance == right.distance
+            and equivalent(left.left, right.left)
+            and equivalent(left.right, right.right)
+        )
+    return False
+
+
+def _same_members(left: tuple[Node, ...], right: tuple[Node, ...]) -> bool:
+    if len(left) != len(right):
+        return False
+    remaining = list(right)
+    for child in left:
+        for index, candidate in enumerate(remaining):
+            if equivalent(child, candidate):
+                remaining.pop(index)
+                break
+        else:
+            return False
+    return True
+
+
+def _extension_set(meta: Meta) -> set[str] | None:
+    """The extension set a ``type:``/``ext:`` filter stands for, if any."""
+    if meta.field == "type" and meta.op == "eq":
+        extensions = TYPE_EXTENSION_MAP.get(meta.value)
+        return set(extensions) if extensions else None
+    if meta.field == "ext" and meta.op == "in":
+        return {"." + value.lstrip(".") for value in meta.value.split(",") if value}
+    return None

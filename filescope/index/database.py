@@ -8,7 +8,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from ..core.models import Chunk, FileEntry
+from ..core.models import Chunk, ChunkKind, FileEntry
 from ..core.paths import normalized_key
 from ..errors import IndexUnavailable
 from ..logging_setup import get_logger
@@ -19,6 +19,11 @@ log = get_logger("index")
 
 MAX_CHUNK_CHARS = 64 * 1024          # one cell/page/paragraph
 MAX_FILE_CHARS = 8 * 1024 * 1024     # total stored text per file
+
+#: Reading stored chunks is the hottest loop of an indexed search (tens of
+#: thousands of rows), so the enum lookup is a plain dict instead of a
+#: ``try: ChunkKind(value)`` per row.
+_KIND_BY_VALUE = {kind.value: kind for kind in ChunkKind}
 
 
 @dataclass
@@ -415,7 +420,7 @@ class IndexDatabase:
             (file_id,),
         )
         while True:
-            rows = cursor.fetchmany(64)
+            rows = cursor.fetchmany(128)
             if not rows:
                 return
             for kind, location, text, index in rows:
@@ -435,13 +440,15 @@ class IndexDatabase:
 
 
 def _to_chunk(kind, location, text, index) -> Chunk:
-    from ..core.models import ChunkKind
-
-    try:
-        chunk_kind = ChunkKind(str(kind))
-    except ValueError:
-        chunk_kind = ChunkKind.LINE
-    return Chunk(text=str(text), kind=chunk_kind, location=str(location), sequence=int(index))
+    chunk_kind = _KIND_BY_VALUE.get(kind)
+    if chunk_kind is None:
+        chunk_kind = _KIND_BY_VALUE.get(str(kind), ChunkKind.LINE)
+    return Chunk(
+        text=text if type(text) is str else str(text),
+        kind=chunk_kind,
+        location=location if type(location) is str else str(location),
+        sequence=index if type(index) is int else int(index),
+    )
 
 
 def _norm(text: str) -> str:

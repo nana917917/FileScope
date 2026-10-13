@@ -1,0 +1,44 @@
+{
+  "mode": "standard",
+  "query": "評価",
+  "runs": {
+    "1": {
+      "cpu_median": 3.6484,
+      "cpu_samples": [
+        3.8906,
+        3.4062
+      ],
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "wall_median": 3.1292,
+      "wall_samples": [
+        3.3971,
+        2.8613
+      ]
+    },
+    "4": {
+      "cpu_median": 15.8593,
+      "cpu_samples": [
+        15.2656,
+        16.4531
+      ],
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "wall_median": 9.4985,
+      "wall_samples": [
+        9.1861,
+        9.8109
+      ]
+    }
+  },
+  "warmup": {
+    "cpu": 12.5938,
+    "first": 0.1628,
+    "hits": 10000,
+    "indexed": 10000,
+    "read": 0,
+    "wall": 7.4907
+  }
+}

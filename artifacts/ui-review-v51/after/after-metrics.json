@@ -1,0 +1,68 @@
+{
+  "search_seconds": 1.003,
+  "results": 6,
+  "coverage": "発見 16 / 検索完了 14 / Hit 6資料 / 索引 0 / 実読込 14 / OCR 0ページ / Online-only skip 0",
+  "status": "完了: 6資料 / 12件一致 / 0.4秒 / 自動保存: E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\workspace\\appdata\\FileScope\\sessions\\results-20260916-232826.csv",
+  "fonts": {
+    "TkCaptionFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    },
+    "TkDefaultFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    },
+    "TkFixedFont": {
+      "family": "ＭＳ ゴシック",
+      "size": 10,
+      "weight": "normal"
+    },
+    "TkHeadingFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    },
+    "TkIconFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    },
+    "TkMenuFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    },
+    "TkSmallCaptionFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    },
+    "TkTextFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    },
+    "TkTooltipFont": {
+      "family": "Yu Gothic UI",
+      "size": 9,
+      "weight": "normal"
+    }
+  },
+  "screenshots": [
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-01-before-search-1280x720.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-02-searching.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-03-results.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-04-preview.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-04b-pdf-page.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-04c-pdf-zoom.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-05-size-1024x768.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-05-size-1280x720.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-05-size-1920x1080.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-06-maximised.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-07-condition-builder.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-08-advanced-settings.png",
+    "E:\\07_Program\\FileScope\\artifacts\\ui-review-v51\\after\\after-09-diagnostics.png"
+  ]
+}

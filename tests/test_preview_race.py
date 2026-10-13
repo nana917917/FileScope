@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-from contextlib import suppress
 
 import pytest
 
@@ -41,19 +40,8 @@ def make_result(tmp_path, name: str) -> FileResult:
     )
 
 
-@pytest.fixture(scope="module")
-def root():
-    try:
-        window = tk.Tk()
-    except tk.TclError:  # pragma: no cover - headless
-        pytest.skip("Tk display unavailable")
-    window.withdraw()
-    yield window
-    with suppress(tk.TclError):
-        window.destroy()
-
-
-def test_stale_preview_result_is_dropped(root, tmp_path) -> None:
+def test_stale_preview_result_is_dropped(tk_session_root, tmp_path) -> None:
+    root = tk_session_root
     pane = PreviewPane(root)
     config = UiState(root=str(tmp_path)).to_config(Settings())
     slow = make_result(tmp_path, "slow.txt")
@@ -90,7 +78,7 @@ def test_stale_preview_result_is_dropped(root, tmp_path) -> None:
     pane.destroy()
 
 
-def test_phase2_callback_carries_its_own_file(root, tmp_path) -> None:
+def test_phase2_callback_carries_its_own_file(tmp_path) -> None:
     """_on_preview_chunks must use the analysed file, not the current selection."""
     from filescope.ui.main_window import MainWindow
 

@@ -1,0 +1,37 @@
+feat(ui): full-width search form, real progress, multi-folder, PDF page images
+
+Layout and typography (v5.1 brief sections 4-5): the folder and query fields now
+use grid weights so they stretch to the window width, with 参照/＋追加/一覧 next
+to the folder field and 検索開始 on the query row. One UI font family throughout
+(9pt body, 10pt query field); bold is reserved for field labels and section
+headers; the oversized console font on the query field is gone.
+
+Search modes (section 6): the three modes now carry a one-line description of
+what they actually do, including the fast-mode limits (unindexed files and
+online-only files are out of scope).
+
+Multi-folder (section 7): ＋追加 appends without clearing, 一覧 opens a small
+dialog to review/remove/reorder folders, duplicates are rejected, missing paths
+are shown in red, and `;` separated input keeps working.
+
+Progress (sections 11-12): a progress bar runs indeterminate while the folder
+enumeration is running (no fake percentage) and switches to determinate once the
+total is known, showing "processed / total | % | hits". The status line names the
+file being read, the phase (folder scan / search / PDF text / index) and says so
+when the current file is taking a long time. Coverage moved to its own line so
+the progress line is never overwritten by result counters.
+
+Preview (sections 14-15): file name, kind, size, page count, folder and matched
+terms in the header, monospace text with the location labels and highlighted
+matches, and a new page-image view for PDFs (文字/画像 toggle, page navigation,
+zoom 50-200%, text/image switch). Only the selected PDF is rendered, one page at
+a time, capped at 12 megapixels, cached 3 pages, and never rendered for an
+online-only file when the search policy says not to fetch.
+
+Also: the search button disables while a search runs, a query error restores the
+buttons and puts the caret back in the query field, and modal dialogs are
+suppressed in the test suite.
+
+Tests: 353 passed / 1 skipped (Tesseract-only); new coverage for the builder
+round trip, quoted conditions, 10/30/50/100 conditions, multi-folder search,
+progress bar modes, button state and query-error recovery.

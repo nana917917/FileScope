@@ -9,7 +9,8 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipInstall,
     [switch]$Measure,
-    [string]$Version = "5.0.0",
+    [string]$Version = "5.1.0",
+    [string]$OutputDirectory = "dist",
     [string]$Label = "win64"
 )
 
@@ -29,12 +30,21 @@ if (-not $SkipInstall) {
     & $python -m pip install --quiet -r requirements.txt pyinstaller
 }
 
+$outputDir = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) {
+    $OutputDirectory
+} else {
+    Join-Path $root $OutputDirectory
+}
+New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+
 if (-not $SkipBuild) {
-    Write-Host "building onedir bundle"
-    & $python -m PyInstaller FileScope.spec --noconfirm --clean --log-level WARN
+    $workDir = Join-Path $root ("_scratch\build-" + $Version)
+    New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+    Write-Host "building onedir bundle into $outputDir"
+    & $python -m PyInstaller FileScope.spec --noconfirm --clean --log-level WARN --distpath $outputDir --workpath $workDir
 }
 
-$distDir = Join-Path $root "dist\FileScope"
+$distDir = Join-Path $outputDir "FileScope"
 $exe = Join-Path $distDir "FileScope.exe"
 if (-not (Test-Path $exe)) { throw "build failed: $exe not found" }
 
@@ -52,7 +62,7 @@ if (Test-Path $docsSource) {
 }
 
 $zipName = "FileScope-v$Version-$Label.zip"
-$zipPath = Join-Path $root "dist\$zipName"
+$zipPath = Join-Path $outputDir $zipName
 if (Test-Path $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Write-Host "creating $zipName"
 Compress-Archive -Path (Join-Path $distDir "*") -DestinationPath $zipPath -CompressionLevel Optimal

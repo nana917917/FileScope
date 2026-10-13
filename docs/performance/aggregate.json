@@ -1,0 +1,334 @@
+{
+  "2000": {
+    "rc1": {
+      "direct_first.seconds": {
+        "samples": [
+          0.663,
+          0.676,
+          0.625
+        ],
+        "median": 0.663
+      },
+      "direct_first.first_result_seconds": {
+        "samples": [
+          0.0163,
+          0.0124,
+          0.0063
+        ],
+        "median": 0.0124
+      },
+      "index_build.seconds": {
+        "samples": [
+          8.572,
+          9.035,
+          8.232
+        ],
+        "median": 8.572
+      },
+      "index_repeat.seconds": {
+        "samples": [
+          1.807,
+          1.995,
+          1.96
+        ],
+        "median": 1.96
+      },
+      "index_repeat.first_result_seconds": {
+        "samples": [
+          0.0782,
+          0.0811,
+          0.0864
+        ],
+        "median": 0.0811
+      },
+      "index_short_term.seconds": {
+        "samples": [
+          1.688,
+          1.915,
+          1.899
+        ],
+        "median": 1.899
+      },
+      "selective_direct.seconds": {
+        "samples": [
+          0.919,
+          0.936,
+          0.937
+        ],
+        "median": 0.936
+      },
+      "selective_index.seconds": {
+        "samples": [
+          0.525,
+          0.56,
+          0.563
+        ],
+        "median": 0.56
+      },
+      "peak_rss_bytes": {
+        "samples": [
+          92151808,
+          92352512,
+          93200384
+        ],
+        "median": 92352512
+      },
+      "enumeration.seconds": {
+        "samples": [
+          0.083,
+          0.0925,
+          0.0792
+        ],
+        "median": 0.083
+      }
+    },
+    "rc2": {
+      "direct_first.seconds": {
+        "samples": [
+          2.818,
+          0.622,
+          0.639
+        ],
+        "median": 0.639
+      },
+      "direct_first.first_result_seconds": {
+        "samples": [
+          0.0232,
+          0.0064,
+          0.007
+        ],
+        "median": 0.007
+      },
+      "index_build.seconds": {
+        "samples": [
+          8.353,
+          8.504,
+          8.127
+        ],
+        "median": 8.353
+      },
+      "index_repeat.seconds": {
+        "samples": [
+          2.0,
+          1.811,
+          1.996
+        ],
+        "median": 1.996
+      },
+      "index_repeat.first_result_seconds": {
+        "samples": [
+          0.0796,
+          0.0818,
+          0.0917
+        ],
+        "median": 0.0818
+      },
+      "index_short_term.seconds": {
+        "samples": [
+          1.953,
+          1.836,
+          1.867
+        ],
+        "median": 1.867
+      },
+      "selective_direct.seconds": {
+        "samples": [
+          1.021,
+          0.935,
+          0.968
+        ],
+        "median": 0.968
+      },
+      "selective_index.seconds": {
+        "samples": [
+          0.597,
+          0.557,
+          0.551
+        ],
+        "median": 0.557
+      },
+      "peak_rss_bytes": {
+        "samples": [
+          92999680,
+          93573120,
+          92319744
+        ],
+        "median": 92999680
+      },
+      "enumeration.seconds": {
+        "samples": [
+          0.0739,
+          0.0746,
+          0.0741
+        ],
+        "median": 0.0741
+      }
+    }
+  },
+  "10000": {
+    "rc1": {
+      "direct_first.seconds": {
+        "samples": [
+          3.518,
+          3.6,
+          3.641
+        ],
+        "median": 3.6
+      },
+      "direct_first.first_result_seconds": {
+        "samples": [
+          0.0068,
+          0.0052,
+          0.0061
+        ],
+        "median": 0.0061
+      },
+      "index_build.seconds": {
+        "samples": [
+          45.666,
+          48.367,
+          46.196
+        ],
+        "median": 46.196
+      },
+      "index_repeat.seconds": {
+        "samples": [
+          10.262,
+          10.522,
+          10.48
+        ],
+        "median": 10.48
+      },
+      "index_repeat.first_result_seconds": {
+        "samples": [
+          0.4209,
+          0.4222,
+          0.4042
+        ],
+        "median": 0.4209
+      },
+      "index_short_term.seconds": {
+        "samples": [
+          9.519,
+          9.608,
+          9.864
+        ],
+        "median": 9.608
+      },
+      "selective_direct.seconds": {
+        "samples": [
+          4.855,
+          4.799,
+          5.012
+        ],
+        "median": 4.855
+      },
+      "selective_index.seconds": {
+        "samples": [
+          2.954,
+          2.83,
+          2.976
+        ],
+        "median": 2.954
+      },
+      "peak_rss_bytes": {
+        "samples": [
+          85168128,
+          83439616,
+          83587072
+        ],
+        "median": 83587072
+      },
+      "enumeration.seconds": {
+        "samples": [
+          0.3787,
+          0.4285,
+          0.3788
+        ],
+        "median": 0.3788
+      }
+    },
+    "rc2": {
+      "direct_first.seconds": {
+        "samples": [
+          14.781,
+          3.713,
+          3.615
+        ],
+        "median": 3.713
+      },
+      "direct_first.first_result_seconds": {
+        "samples": [
+          0.0141,
+          0.0072,
+          0.0058
+        ],
+        "median": 0.0072
+      },
+      "index_build.seconds": {
+        "samples": [
+          44.916,
+          46.253,
+          46.063
+        ],
+        "median": 46.063
+      },
+      "index_repeat.seconds": {
+        "samples": [
+          10.085,
+          9.121,
+          10.39
+        ],
+        "median": 10.085
+      },
+      "index_repeat.first_result_seconds": {
+        "samples": [
+          0.4001,
+          0.3853,
+          0.4278
+        ],
+        "median": 0.4001
+      },
+      "index_short_term.seconds": {
+        "samples": [
+          9.75,
+          9.491,
+          9.652
+        ],
+        "median": 9.652
+      },
+      "selective_direct.seconds": {
+        "samples": [
+          4.892,
+          4.845,
+          4.76
+        ],
+        "median": 4.845
+      },
+      "selective_index.seconds": {
+        "samples": [
+          3.008,
+          2.921,
+          2.787
+        ],
+        "median": 2.921
+      },
+      "peak_rss_bytes": {
+        "samples": [
+          84062208,
+          83505152,
+          85610496
+        ],
+        "median": 84062208
+      },
+      "enumeration.seconds": {
+        "samples": [
+          0.4478,
+          0.4236,
+          0.3976
+        ],
+        "median": 0.4236
+      }
+    }
+  }
+}

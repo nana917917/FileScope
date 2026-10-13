@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass, field
 
 from ..config import Settings
 from ..core.coordinator import SearchConfig
-from ..core.matcher import MatchOptions, QueryMatcher
-from ..core.models import FileResult, SourceType
 from ..core.paths import normalized_key
-from ..core.query import parse_query
-from ..errors import QuerySyntaxError
 
 
 @dataclass
@@ -139,9 +134,14 @@ class UiState:
         )
 
     def combined_query(self) -> str:
-        """Merge the main query with the legacy exclusion field."""
+        """Combine the primary query, result refinement and exclusions."""
         query = self.query.strip()
+        refine = self.refine_text.strip()
         exclude = self.exclude_query.strip()
+        if query and refine:
+            query = f"({query}) & ({refine})"
+        elif refine:
+            query = refine
         if not exclude:
             return query
         exclusions = " ".join(
@@ -156,74 +156,7 @@ class UiState:
         parts = [part.strip().strip('"') for part in self.root.replace("\n", ";").split(";")]
         return tuple(dict.fromkeys(part for part in parts if part))
 
-    # ------------------------------------------------------------ refine
-    def make_refine_matcher(self) -> tuple[QueryMatcher | None, str]:
-        text = self.refine_text.strip()
-        if not text:
-            return None, ""
-        try:
-            node = parse_query(text, legacy_operator=self.legacy_operator)
-        except QuerySyntaxError as exc:
-            return None, exc.message
-        if node is None:
-            return None, ""
-        matcher = QueryMatcher(
-            node,
-            MatchOptions(
-                case_sensitive=self.case_sensitive,
-                ignore_width=self.ignore_width,
-                part_number_mode=self.part_number_mode,
-            ),
-        )
-        return matcher, ""
-
-
-def refine_result(result: FileResult, matcher: QueryMatcher | None) -> bool | None:
-    """Apply the refine query to one result.
-
-    ``True``/``False`` when the result can be judged from stored evidence,
-    ``None`` when the evidence is not enough (the caller keeps the row and
-    labels it as not evaluated rather than silently dropping it).
-    """
-    if matcher is None:
-        return True
-    from ..core.models import Chunk, ChunkKind
-
-    state = matcher.make_state(
-        _entry_for(result),
-        name=result.name,
-        directory=result.directory,
-    )
-    state.feed(Chunk(text=result.name, kind=ChunkKind.NAME, location="ファイル名"))
-    state.feed(Chunk(text=result.directory, kind=ChunkKind.PATH, location="フォルダ"))
-    for evidence in result.evidence:
-        state.feed(
-            Chunk(
-                text=f"{evidence.snippet}\n{evidence.term}",
-                kind=evidence.kind,
-                location=evidence.location,
-            )
-        )
-    from ..core.matcher import Outcome
-
-    outcome = state.finish()
-    if outcome is Outcome.ACCEPT:
-        return True
-    # Evidence is truncated by design, so a miss cannot be proven here.
-    return None
-
-
-def _entry_for(result: FileResult):
-    from ..core.models import FileEntry
-
-    return FileEntry(
-        path=result.path,
-        size=result.size,
-        mtime_ns=result.mtime_ns,
-        extension=os.path.splitext(result.path)[1].lower(),
-        source_type=result.source_type,
-        cloud_state=result.cloud_state,
-    )
+    # ------------------------------------------------------------ results
 
 
 def apply_filters(rows: list, state: UiState, confirmed: set[str]) -> list:
@@ -255,7 +188,7 @@ def apply_filters(rows: list, state: UiState, confirmed: set[str]) -> list:
 def record_history(settings: Settings, state: UiState, hits: int, elapsed: float) -> None:
     settings.add_history(
         {
-            "query": state.query,
+            "query": state.combined_query(),
             "root": state.root,
             "mode": state.mode,
             "hits": hits,
@@ -271,6 +204,7 @@ def preset_from_state(state: UiState, name: str) -> dict:
         "name": name,
         "root": state.root,
         "query": state.query,
+        "refine_text": state.refine_text,
         "exclude_query": state.exclude_query,
         "mode": state.mode,
         "legacy_operator": state.legacy_operator,
@@ -298,6 +232,3 @@ def apply_preset(state: UiState, preset: dict) -> None:
             continue
         if hasattr(state, key):
             setattr(state, key, value)
-
-
-_ = SourceType
