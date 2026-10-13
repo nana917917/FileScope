@@ -1,4 +1,4 @@
-FileScope 5.1.0
+FileScope 5.1.1
 Build: pyinstaller onedir (win64)
 Source: branch codex/v5.1-ux-performance (based on branch codex/v5.1-ui-stability)
 
