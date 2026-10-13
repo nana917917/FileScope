@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import os
 import queue
+import time
 import tkinter as tk
 from contextlib import suppress
 from tkinter import filedialog, messagebox, ttk
@@ -43,7 +44,6 @@ from .state import (
     apply_preset,
     preset_from_state,
     record_history,
-    refine_result,
 )
 
 log = get_logger("ui")
@@ -88,7 +88,9 @@ class MainWindow(ttk.Frame):
         self._build_body()
         self._build_status()
         self._bind_keys()
+        index_started = time.perf_counter()
         self._open_index()
+        log.info("startup phase: index_open=%.3fs", time.perf_counter() - index_started)
         self._update_index_label()
         self._drain_job = self.after(DRAIN_MS, self._drain_events)
 
@@ -237,13 +239,18 @@ class MainWindow(ttk.Frame):
 
         refine = ttk.Frame(left)
         refine.pack(fill="x", pady=(0, 4))
-        ttk.Label(refine, text="結果をさらに絞る").pack(side="left")
+        ttk.Label(refine, text="検索2（検索1とAND）").pack(side="left")
         entry = ttk.Entry(refine, textvariable=self._refine_var)
         entry.pack(side="left", fill="x", expand=True, padx=6)
         entry.bind("<Return>", lambda _event: self.apply_refine())
-        ttk.Button(refine, text="適用", command=self.apply_refine).pack(side="left")
+        ttk.Button(refine, text="再検索", command=self.apply_refine).pack(side="left")
         ttk.Button(refine, text="解除", command=self.clear_refine).pack(side="left", padx=4)
         ttk.Label(refine, textvariable=self._result_count_text, foreground="#555").pack(side="left", padx=6)
+        ttk.Label(
+            left,
+            text="同じ検索場所を検索し直します。検索2は検索1と両方含むファイルを探します。",
+            foreground="#666",
+        ).pack(anchor="w", pady=(0, 3))
 
         self.facet_frame = ttk.LabelFrame(left, text="絞り込み（クリックで適用）", padding=4)
         self.facet_frame.pack(fill="x", pady=(0, 4))
@@ -260,7 +267,8 @@ class MainWindow(ttk.Frame):
         )
         for key, label, width in results_module.COLUMNS:
             self.tree.heading(key, text=label, command=lambda column=key: self.sort_by(column))
-            self.tree.column(key, width=width, anchor="w", stretch=(key in ("name", "path")))
+            saved_width = _bounded_layout_value(self.settings, f"column_{key}", width, 24, 2000)
+            self.tree.column(key, width=saved_width, anchor="w", stretch=(key in ("name", "path")))
         for tag, options in results_module.TAGS.items():
             self.tree.tag_configure(tag, **options)
 
@@ -313,7 +321,8 @@ class MainWindow(ttk.Frame):
                 right_width = 0
             if not force and self._sash_placed and right_width >= 220:
                 return
-            target = max(520, int(width * 0.64))
+            ratio = _bounded_layout_value(self.settings, "preview_ratio_per_mille", 360, 200, 700) / 1000
+            target = max(420, int(width * (1 - ratio)))
             self.body_paned.sashpos(0, min(target, width - 300))
             self._sash_placed = True
         except tk.TclError:
@@ -548,19 +557,7 @@ class MainWindow(ttk.Frame):
 
     # ------------------------------------------------------------- results
     def _visible_rows(self) -> list:
-        rows = apply_filters(self.model.all_rows, self.state, self.settings.confirmed_set())
-        matcher, _error = self.state.make_refine_matcher()
-        if matcher is not None:
-            filtered = []
-            for row in rows:
-                verdict = refine_result(row.result, matcher)
-                if verdict is True:
-                    filtered.append(row)
-                elif verdict is None:
-                    row.refine_unknown = True
-                    filtered.append(row)
-            rows = filtered
-        return rows
+        return apply_filters(self.model.all_rows, self.state, self.settings.confirmed_set())
 
     def _render_results(self) -> None:
         rows = self._visible_rows()
@@ -794,20 +791,12 @@ class MainWindow(ttk.Frame):
 
     def apply_refine(self) -> None:
         self.state.refine_text = self._refine_var.get()
-        matcher, error = self.state.make_refine_matcher()
-        if error:
-            messagebox.showerror("絞り込み条件のエラー", error)
-            return
-        self._render_results()
-        if matcher is not None and not self._index_active():
-            self._status_text.set(
-                "索引OFFのため、絞り込みは表示中の根拠テキストとファイル名のみを対象にします"
-            )
+        self.start_search()
 
     def clear_refine(self) -> None:
         self._refine_var.set("")
         self.state.refine_text = ""
-        self._render_results()
+        self.start_search()
 
     # ------------------------------------------------------------ actions
     def open_selected(self) -> None:
@@ -1051,6 +1040,8 @@ class MainWindow(ttk.Frame):
         entry = dialog.show()
         if entry:
             self.query_var.set(entry.get("query", ""))
+            self._refine_var.set("")
+            self.state.refine_text = ""
             if entry.get("root"):
                 self.root_var.set(entry["root"])
             self._sync_state()
@@ -1059,6 +1050,7 @@ class MainWindow(ttk.Frame):
     def _apply_state_to_form(self) -> None:
         self.root_var.set(self.state.root)
         self.query_var.set(self.state.query)
+        self._refine_var.set(self.state.refine_text)
         self.exclude_var.set(self.state.exclude_query)
         self.mode_var.set(self.state.mode)
         self.kind_vars["excel"].set(self.state.include_excel)
@@ -1156,6 +1148,14 @@ class MainWindow(ttk.Frame):
                 self.session.cancel()
                 self.session.wait(5)
             self._sync_state()
+            width = max(1, self.body_paned.winfo_width())
+            with suppress(tk.TclError, ValueError):
+                self.settings.window["preview_ratio_per_mille"] = round(
+                    (width - self.body_paned.sashpos(0)) / width * 1000
+                )
+            for key, _label, _default_width in results_module.COLUMNS:
+                with suppress(tk.TclError, ValueError):
+                    self.settings.window[f"column_{key}"] = int(self.tree.column(key, "width"))
             self.state.save_to(self.settings)
             self.settings.save()
             if self.database is not None:
@@ -1173,6 +1173,14 @@ def human_size(size: int) -> str:
             return f"{value:.1f}{unit}"
         value /= 1024
     return f"{size}B"
+
+
+def _bounded_layout_value(settings: Settings, key: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(settings.window.get(key, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
 
 
 def write_results_csv(path: str, rows) -> bool:

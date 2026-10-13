@@ -255,6 +255,8 @@ class Settings:
             self.bookmarks = {}
         if not isinstance(self.recent_roots, list):
             self.recent_roots = []
+        if not isinstance(self.window, dict):
+            self.window = {}
 
     def save(self, path: str | None = None) -> bool:
         path = path or paths.settings_path()

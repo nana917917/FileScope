@@ -24,7 +24,7 @@ pytestmark = pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptio
 from filescope import paths  # noqa: E402
 from filescope.config import Settings  # noqa: E402
 from filescope.ui import results as results_module  # noqa: E402
-from filescope.ui.main_window import MainWindow, write_results_csv  # noqa: E402
+from filescope.ui.main_window import MainWindow, _bounded_layout_value, write_results_csv  # noqa: E402
 from tools.make_corpus import build_corpus  # noqa: E402
 
 
@@ -70,6 +70,17 @@ def pump(root, seconds: float) -> None:
 
 
 class TestMainWindow:
+    def test_invalid_saved_layout_values_fall_back_to_defaults(self, tk_root, isolated_paths) -> None:
+        settings = Settings()
+        settings.index_enabled = False
+        settings.window = {"column_name": "bad-width", "preview_ratio_per_mille": None}
+
+        window = MainWindow(tk_root, settings=settings)
+        assert int(window.tree.column("name", "width")) == 180
+        assert _bounded_layout_value(settings, "preview_ratio_per_mille", 360, 200, 700) == 360
+        settings.window["preview_ratio_per_mille"] = 900
+        assert _bounded_layout_value(settings, "preview_ratio_per_mille", 360, 200, 700) == 700
+
     def test_window_builds_and_searches(self, tk_root, tmp_path, isolated_paths) -> None:
         corpus = build_corpus(tmp_path / "corpus", with_ocr_image=False)
         settings = Settings()
@@ -110,7 +121,7 @@ class TestMainWindow:
         pump(tk_root, 2.0)
         assert window.preview.text.get("1.0", "end").strip()
 
-    def test_refine_filters_without_new_search(self, tk_root, tmp_path, isolated_paths) -> None:
+    def test_search_two_reruns_search_one_and_second_condition(self, tk_root, tmp_path, isolated_paths) -> None:
         corpus = build_corpus(tmp_path / "corpus3", with_ocr_image=False)
         settings = Settings()
         settings.index_enabled = False
@@ -126,11 +137,27 @@ class TestMainWindow:
                 break
         pump(tk_root, 0.5)
         before = len(window.model.visible)
+        first_session = window.session
         window._refine_var.set("電源")
         window.apply_refine()
-        pump(tk_root, 0.3)
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
+        assert window.session is not first_session
+        assert window.session.config.query == "(AAA) & (電源)"
         assert len(window.model.visible) <= before
         window.clear_refine()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            tk_root.update()
+            time.sleep(0.05)
+            if window.session is not None and window.session.finished:
+                break
+        pump(tk_root, 0.5)
         assert len(window.model.visible) == before
 
     def test_condition_builder_produces_query(self) -> None:
