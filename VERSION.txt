@@ -1,6 +1,6 @@
-FileScope 5.1.0-rc1
+FileScope 5.1.0-rc2
 Build: pyinstaller onedir (win64)
-Source: branch codex/v5.1-ui-stability (based on tag v5.0.0)
+Source: branch codex/v5.1-ux-performance (based on branch codex/v5.1-ui-stability)
 
 Contents
   FileScope.exe        program (no Python installation required)
@@ -9,8 +9,8 @@ Contents
   QUICKSTART.md        10-minute introduction
   THIRD_PARTY_NOTICES.md
   LICENSE.txt
-  docs/                regression matrix, feature inventory, local acceptance test
-  bench_results.json   performance measurements of this build family
+  docs/                regression matrix, feature inventory, research and local acceptance test
+  bench_results.json   historical RC1 performance record; see RC2 validation report for current measurements
 
 First run
   1. Double-click FileScope.exe

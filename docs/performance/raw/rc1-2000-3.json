@@ -1,0 +1,213 @@
+{
+  "root": "E:\\07_Program\\FileScope\\_scratch\\corpus-2000",
+  "python": "3.11.9",
+  "ocr": {
+    "ready": false,
+    "message": "OCR未導入: Tesseract本体が見つかりません（通常PDF検索は利用できます）"
+  },
+  "enumeration": {
+    "files": 2000,
+    "seconds": 0.0792,
+    "files_per_second": 25257.3
+  },
+  "direct_first": {
+    "seconds": 0.625,
+    "results": 2000,
+    "hits": 4000,
+    "discovered": 2000,
+    "files_per_second": 3197.5,
+    "first_result_seconds": 0.0063,
+    "coverage": {
+      "discovered": 2000,
+      "scanned": 2000,
+      "hits": 2000,
+      "indexed": 0,
+      "read": 2000,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 0.6252503395080566
+    },
+    "index_used": false
+  },
+  "index_build": {
+    "seconds": 8.232,
+    "results": 2000,
+    "hits": 4000,
+    "discovered": 2000,
+    "files_per_second": 242.9,
+    "first_result_seconds": 0.0082,
+    "coverage": {
+      "discovered": 2000,
+      "scanned": 2000,
+      "hits": 2000,
+      "indexed": 0,
+      "read": 2000,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 8.231775045394897
+    },
+    "index_used": false
+  },
+  "index_repeat": {
+    "seconds": 1.96,
+    "results": 2000,
+    "hits": 4000,
+    "discovered": 2000,
+    "files_per_second": 1020.5,
+    "first_result_seconds": 0.0864,
+    "coverage": {
+      "discovered": 2000,
+      "scanned": 2000,
+      "hits": 2000,
+      "indexed": 2000,
+      "read": 0,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 1.959545612335205
+    },
+    "index_used": true
+  },
+  "index_short_term": {
+    "seconds": 1.899,
+    "results": 2000,
+    "hits": 2000,
+    "discovered": 2000,
+    "files_per_second": 1053.2,
+    "first_result_seconds": 0.0336,
+    "coverage": {
+      "discovered": 2000,
+      "scanned": 2000,
+      "hits": 2000,
+      "indexed": 2000,
+      "read": 0,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 1.8980209827423096
+    },
+    "index_used": true
+  },
+  "selective_direct": {
+    "seconds": 0.937,
+    "results": 286,
+    "hits": 286,
+    "discovered": 2000,
+    "files_per_second": 2134.2,
+    "first_result_seconds": 0.0054,
+    "coverage": {
+      "discovered": 2000,
+      "scanned": 2000,
+      "hits": 286,
+      "indexed": 0,
+      "read": 2000,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 0.9368205070495605
+    },
+    "index_used": false
+  },
+  "selective_index": {
+    "seconds": 0.563,
+    "results": 286,
+    "hits": 286,
+    "discovered": 2000,
+    "files_per_second": 3550.1,
+    "first_result_seconds": 0.0125,
+    "coverage": {
+      "discovered": 2000,
+      "scanned": 2000,
+      "hits": 286,
+      "indexed": 2000,
+      "read": 0,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 0.5637109279632568
+    },
+    "index_used": true
+  },
+  "index": {
+    "files": 2000,
+    "chunks": 84286,
+    "size_bytes": 25847416,
+    "trigram": true
+  },
+  "ocr_cache_size": 98696,
+  "documents_direct": {
+    "seconds": 0.219,
+    "results": 6,
+    "hits": 12,
+    "discovered": 16,
+    "files_per_second": 73.0,
+    "first_result_seconds": 0.0046,
+    "coverage": {
+      "discovered": 16,
+      "scanned": 14,
+      "hits": 6,
+      "indexed": 0,
+      "read": 14,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 2,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 0.2181689739227295
+    },
+    "index_used": false
+  },
+  "documents_index": {
+    "seconds": 0.122,
+    "results": 6,
+    "hits": 12,
+    "discovered": 16,
+    "files_per_second": 131.4,
+    "first_result_seconds": 0.0862,
+    "coverage": {
+      "discovered": 16,
+      "scanned": 14,
+      "hits": 6,
+      "indexed": 0,
+      "read": 14,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 2,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 0.12115597724914551
+    },
+    "index_used": false
+  },
+  "peak_rss_bytes": 93200384
+}

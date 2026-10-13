@@ -1,0 +1,165 @@
+{
+  "root": "_scratch\\corpus-10000",
+  "python": "3.11.9",
+  "ocr": {
+    "ready": false,
+    "message": "OCR未導入: Tesseract本体が見つかりません（通常PDF検索は利用できます）"
+  },
+  "enumeration": {
+    "files": 10000,
+    "seconds": 0.4478,
+    "files_per_second": 22329.8
+  },
+  "direct_first": {
+    "seconds": 14.781,
+    "results": 10000,
+    "hits": 20000,
+    "discovered": 10000,
+    "files_per_second": 676.6,
+    "first_result_seconds": 0.0141,
+    "coverage": {
+      "discovered": 10000,
+      "scanned": 10000,
+      "hits": 10000,
+      "indexed": 0,
+      "read": 10000,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 14.779525518417358
+    },
+    "index_used": false
+  },
+  "index_build": {
+    "seconds": 44.916,
+    "results": 10000,
+    "hits": 20000,
+    "discovered": 10000,
+    "files_per_second": 222.6,
+    "first_result_seconds": 0.0109,
+    "coverage": {
+      "discovered": 10000,
+      "scanned": 10000,
+      "hits": 10000,
+      "indexed": 0,
+      "read": 10000,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 44.913843631744385
+    },
+    "index_used": false
+  },
+  "index_repeat": {
+    "seconds": 10.085,
+    "results": 10000,
+    "hits": 20000,
+    "discovered": 10000,
+    "files_per_second": 991.5,
+    "first_result_seconds": 0.4001,
+    "coverage": {
+      "discovered": 10000,
+      "scanned": 10000,
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 10.084120988845825
+    },
+    "index_used": true
+  },
+  "index_short_term": {
+    "seconds": 9.75,
+    "results": 10000,
+    "hits": 10000,
+    "discovered": 10000,
+    "files_per_second": 1025.6,
+    "first_result_seconds": 0.1629,
+    "coverage": {
+      "discovered": 10000,
+      "scanned": 10000,
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 9.749385833740234
+    },
+    "index_used": true
+  },
+  "selective_direct": {
+    "seconds": 4.892,
+    "results": 1429,
+    "hits": 1429,
+    "discovered": 10000,
+    "files_per_second": 2044.1,
+    "first_result_seconds": 0.0058,
+    "coverage": {
+      "discovered": 10000,
+      "scanned": 10000,
+      "hits": 1429,
+      "indexed": 0,
+      "read": 10000,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 4.891629934310913
+    },
+    "index_used": false
+  },
+  "selective_index": {
+    "seconds": 3.008,
+    "results": 1429,
+    "hits": 1429,
+    "discovered": 10000,
+    "files_per_second": 3324.2,
+    "first_result_seconds": 0.02,
+    "coverage": {
+      "discovered": 10000,
+      "scanned": 10000,
+      "hits": 1429,
+      "indexed": 10000,
+      "read": 0,
+      "ocr_pages": 0,
+      "skipped_online": 0,
+      "skipped_size": 0,
+      "skipped_type": 0,
+      "warnings": 0,
+      "errors": 0,
+      "cancelled": false,
+      "elapsed_seconds": 3.0074455738067627
+    },
+    "index_used": true
+  },
+  "index": {
+    "files": 10000,
+    "chunks": 421429,
+    "size_bytes": 114375760,
+    "trigram": true
+  },
+  "ocr_cache_size": 98696,
+  "peak_rss_bytes": 84062208
+}
