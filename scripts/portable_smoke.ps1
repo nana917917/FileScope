@@ -21,7 +21,7 @@ if (-not $Zip) {
 if (-not $Zip -or -not (Test-Path $Zip)) { throw "release zip not found; run scripts\build_release_zip.ps1 first" }
 
 $python = Join-Path $root ".venv\Scripts\python.exe"
-$work = Join-Path ([System.IO.Path]::GetTempPath()) ("filescope-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$work = Join-Path (Join-Path $root "_scratch") ("filescope-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 $appData = Join-Path $work "appdata"
 $unpack = Join-Path $work "portable"
 $outDir = Join-Path $work "out"

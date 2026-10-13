@@ -19,6 +19,7 @@ Added in V5:
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import os
 import re
 from dataclasses import dataclass, field
@@ -28,6 +29,11 @@ from . import normalize
 from .models import Chunk, ChunkKind, Evidence, FileEntry
 from .paths import classify_kind
 from .query import And, Meta, Near, Node, NOf, Not, Or, Term
+
+#: Hands out the per-matcher identity used by the chunk scan plan. Only
+#: uniqueness matters, so a monotonic counter is enough and cannot collide the
+#: way a pair of object addresses can.
+_PATTERN_IDS = itertools.count(1)
 
 
 class Outcome(str, Enum):
@@ -118,7 +124,11 @@ def compile_pattern(text: str, phrase: bool, options: MatchOptions) -> TermPatte
         norm=norm,
         part=part,
         wildcard=wildcard,
-        pattern_id=id(norm) ^ id(text),
+        # A plain counter, not ``id()``: two live (or reused) strings can produce
+        # the same ``id(a) ^ id(b)``, and two patterns that collide here would be
+        # treated as one pattern by the per-chunk scan plan, silently dropping
+        # the other term's hits.
+        pattern_id=next(_PATTERN_IDS),
     )
 
 

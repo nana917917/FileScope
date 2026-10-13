@@ -214,6 +214,33 @@ class TestDirectIndexEquivalence:
 
 
 class TestIndexUsage:
+    def test_indexed_result_is_published_after_releasing_index_lock(self, tmp_path, monkeypatch) -> None:
+        """A publisher waiting on the event queue must leave the index lane free."""
+        root = tmp_path / "publish"
+        root.mkdir()
+        (root / "doc.txt").write_text("AAA BBB", encoding="utf-8")
+        db = IndexDatabase(str(tmp_path / "publish.sqlite3"))
+        published = []
+        original = SearchSession._publish_result
+
+        def publish(session, result):
+            if result.from_index:
+                acquired = session._index_lock.acquire(blocking=False)
+                assert acquired, "indexed result published while the index lock is held"
+                session._index_lock.release()
+                published.append(result.path)
+            original(session, result)
+
+        try:
+            run_search(root, "AAA", database=db, mode="standard")
+            monkeypatch.setattr(SearchSession, "_publish_result", publish)
+            summary = run_search(root, "AAA & BBB", database=db, mode="standard", workers=1)
+            assert published == [str(root / "doc.txt")]
+            assert len(summary.results) == 1
+            assert not summary.issues
+        finally:
+            db.close()
+
     def test_extraction_setting_change_reindexes(self, corpus, tmp_path) -> None:
         """Formulas/archives/OCR settings change stored text, so rows must refresh."""
         db = IndexDatabase(str(tmp_path / "settings.sqlite3"))

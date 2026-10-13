@@ -457,3 +457,54 @@ class TestAcceptance:
         window.session = None
         assert window._list_refresh_due() is True
         shutdown(window)
+
+    def test_status_line_reports_interruption_and_short_autosave_name(
+        self, tk_root, tmp_path, isolated_paths
+    ) -> None:
+        """The two states stay short enough for a 1024-wide window."""
+        from filescope.core.models import (
+            CloudState,
+            Coverage,
+            FileKind,
+            FileResult,
+            SourceType,
+            Summary,
+        )
+
+        settings = Settings()
+        settings.index_enabled = False
+        settings.autosave_results = True
+        window = MainWindow(tk_root, settings=settings)
+        window._autosave = lambda summary: str(tmp_path / "deep" / "folder" / "results.csv")  # type: ignore[method-assign]
+
+        hit = FileResult(
+            path=str(tmp_path / "a.txt"),
+            file_kind=FileKind.TEXT,
+            size=10,
+            mtime_ns=0,
+            source_type=SourceType.LOCAL,
+            cloud_state=CloudState.LOCAL,
+            matched_terms=("AAA",),
+            displays=("AAA",),
+            hit_count=2,
+        )
+
+        def summary(cancelled: bool) -> Summary:
+            return Summary(
+                query="AAA",
+                mode="standard",
+                started_at=0.0,
+                finished_at=1.5,
+                coverage=Coverage(cancelled=cancelled, discovered=5, scanned=5, hits=1),
+                results=[hit],
+                total_hits=2,
+            )
+
+        window._on_finished(summary(cancelled=True))
+        assert window._status_text.get().startswith("中断:")
+        window._on_finished(summary(cancelled=False))
+        status = window._status_text.get()
+        assert status.startswith("完了:")
+        assert "results.csv" in status
+        assert str(tmp_path) not in status, "the full session path must not be shown"
+        shutdown(window)
