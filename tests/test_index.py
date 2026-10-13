@@ -195,6 +195,10 @@ class TestDirectIndexEquivalence:
             db.close()
         indexed_paths = sorted(result.path for result in indexed.results)
         assert indexed_paths == direct_paths, f"index/direct mismatch for {query!r}"
+        if query.startswith("2of("):
+            direct_displays = {result.path: result.displays for result in direct.results}
+            indexed_displays = {result.path: result.displays for result in indexed.results}
+            assert indexed_displays == direct_displays, f"index/direct match labels differ for {query!r}"
 
     def test_part_number_mode_matches(self, corpus, tmp_path) -> None:
         direct = run_search(corpus.root, "AAA-BBB", mode="full", part_number_mode=True)

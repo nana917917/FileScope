@@ -34,7 +34,6 @@ OVERSCAN = 60
 class Row:
     result: FileResult
     confirmed: bool
-    refine_unknown: bool = False
 
 
 class ResultModel:

@@ -593,6 +593,28 @@ def location_label(chunk: Chunk) -> str:
 def _display_labels(node: Node | None, state: FileMatchState) -> tuple[str, ...]:
     if node is None:
         return ()
+    if isinstance(node, NOf):
+        matched = [child for child in node.children if state._evaluate(child)]
+        unmatched = [child for child in node.children if not state._evaluate(child)]
+        matched_text = "、".join(compact(child) for child in matched)
+        unmatched_text = "、".join(compact(child) for child in unmatched)
+        status = "未一致" if state.hit_count_exact else "未確認"
+        count = f"{len(matched)}/{len(node.children)}" if state.hit_count_exact else f"{len(matched)}/{len(node.children)}以上"
+        label = f"一致:{matched_text} / {status}:{unmatched_text}（{count}）"
+        return (label,)
+    if isinstance(node, (And, Or)) and _contains_n_of(node):
+        labels: list[str] = []
+        for child in node.children:
+            if state._evaluate(child):
+                child_labels = (
+                    _display_labels(child, state)
+                    if isinstance(child, (And, Or, NOf)) and _contains_n_of(child)
+                    else (compact(child),)
+                )
+                for label in child_labels:
+                    if label and label not in labels:
+                        labels.append(label)
+        return tuple(labels)
     if isinstance(node, Or):
         labels: list[str] = []
         for child in node.children:
@@ -605,6 +627,18 @@ def _display_labels(node: Node | None, state: FileMatchState) -> tuple[str, ...]
         label = compact(node)
         return (label,) if label else ()
     return ()
+
+
+def _contains_n_of(node: Node) -> bool:
+    if isinstance(node, NOf):
+        return True
+    if isinstance(node, Not):
+        return _contains_n_of(node.child)
+    if isinstance(node, (And, Or)):
+        return any(_contains_n_of(child) for child in node.children)
+    if isinstance(node, Near):
+        return _contains_n_of(node.left) or _contains_n_of(node.right)
+    return False
 
 
 def _find_all(haystack: str, needle: str) -> list[int]:

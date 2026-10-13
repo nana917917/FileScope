@@ -556,6 +556,7 @@ class SearchSession:
             self._feed_name_and_path(sink, entry)
             if buffered is None and state.finish() is Outcome.ACCEPT:
                 stopped_early = True
+                partial_hits = True
         except StopExtraction:
             stopped_early = True
 
