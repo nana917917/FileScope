@@ -14,6 +14,7 @@ settings.json
 Thumbs.db
 build/
 dist/
+_scratch/
 *.manifest
 # UI review evidence keeps the screenshots only; the generated corpus and
 # redirected LOCALAPPDATA used to produce them are disposable.

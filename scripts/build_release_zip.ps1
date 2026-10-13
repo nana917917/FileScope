@@ -9,7 +9,7 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipInstall,
     [switch]$Measure,
-    [string]$Version = "5.1.0-rc2",
+    [string]$Version = "5.1.0",
     [string]$OutputDirectory = "dist",
     [string]$Label = "win64"
 )

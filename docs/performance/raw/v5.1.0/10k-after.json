@@ -1,0 +1,74 @@
+{
+  "mode": "standard",
+  "query": "評価",
+  "runs": {
+    "1": {
+      "cpu_median": 4.1875,
+      "cpu_samples": [
+        4.2188,
+        4.1562
+      ],
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "wall_median": 3.3815,
+      "wall_samples": [
+        3.3289,
+        3.4341
+      ]
+    },
+    "2": {
+      "cpu_median": 4.0938,
+      "cpu_samples": [
+        4.1719,
+        4.0156
+      ],
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "wall_median": 3.4744,
+      "wall_samples": [
+        3.4971,
+        3.4516
+      ]
+    },
+    "4": {
+      "cpu_median": 4.3203,
+      "cpu_samples": [
+        4.2344,
+        4.4062
+      ],
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "wall_median": 3.5965,
+      "wall_samples": [
+        3.6357,
+        3.5573
+      ]
+    },
+    "8": {
+      "cpu_median": 4.2578,
+      "cpu_samples": [
+        4.2031,
+        4.3125
+      ],
+      "hits": 10000,
+      "indexed": 10000,
+      "read": 0,
+      "wall_median": 3.5924,
+      "wall_samples": [
+        3.5971,
+        3.5876
+      ]
+    }
+  },
+  "warmup": {
+    "cpu": 4.8125,
+    "first": 0.1885,
+    "hits": 10000,
+    "indexed": 10000,
+    "read": 0,
+    "wall": 3.6501
+  }
+}

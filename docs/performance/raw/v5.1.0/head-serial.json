@@ -1,0 +1,167 @@
+{
+  "corpus": "_scratch\\perf\\corpus2000",
+  "enumeration": {
+    "files": 2000,
+    "seconds": 0.0851
+  },
+  "root": "E:\\07_Program\\FileScope",
+  "runs": {
+    "combined": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 286資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.052,
+      "hits": 286,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "standard",
+      "peak_rss_bytes": 45600768,
+      "query": "((評価)) & ((BBB 電源))",
+      "read_files": 0,
+      "samples": [
+        1.8427,
+        1.0091,
+        0.935
+      ],
+      "seconds": 1.0091
+    },
+    "direct": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 0 / 実読込 2,000 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0016,
+      "hits": 2000,
+      "index": false,
+      "indexed_files": 0,
+      "mode": "standard",
+      "peak_rss_bytes": 40939520,
+      "query": "評価",
+      "read_files": 2000,
+      "samples": [
+        0.6905,
+        0.6811,
+        0.6961
+      ],
+      "seconds": 0.6905
+    },
+    "fast": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0304,
+      "hits": 2000,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "fast",
+      "peak_rss_bytes": 45699072,
+      "query": "評価",
+      "read_files": 0,
+      "samples": [
+        0.6797,
+        0.6794,
+        0.6689
+      ],
+      "seconds": 0.6794
+    },
+    "standard_first": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.029,
+      "hits": 2000,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "standard",
+      "peak_rss_bytes": 45600768,
+      "query": "評価",
+      "read_files": 0,
+      "samples": [
+        8.7184,
+        0.6887,
+        0.6255
+      ],
+      "seconds": 0.6887
+    },
+    "standard_repeat": {
+      "coverage": "発見 2,000 / 検索完了 2,000 / Hit 2,000資料 / 索引 2,000 / 実読込 0 / OCR 0ページ / Online-only skip 0",
+      "files_discovered": 2000,
+      "files_scanned": 2000,
+      "first_result_seconds": 0.0323,
+      "hits": 2000,
+      "index": true,
+      "indexed_files": 2000,
+      "mode": "standard",
+      "peak_rss_bytes": 45600768,
+      "query": "評価",
+      "read_files": 0,
+      "samples": [
+        0.6982,
+        0.6883,
+        0.8356
+      ],
+      "seconds": 0.6982
+    }
+  },
+  "stages": {
+    "classify_kind": {
+      "calls": 90000,
+      "seconds": 0.11263249538023956
+    },
+    "extract": {
+      "calls": 8000,
+      "seconds": 1.9796656994440127
+    },
+    "extractor_for": {
+      "calls": 30000,
+      "seconds": 0.07254479892435484
+    },
+    "index.candidate_files": {
+      "calls": 12,
+      "seconds": 0.37268139992374927
+    },
+    "index.evaluate": {
+      "calls": 22000,
+      "seconds": 5.720425498351688
+    },
+    "index.file_row": {
+      "calls": 22000,
+      "seconds": 0.6287798005505465
+    },
+    "index.indexed_paths_under": {
+      "calls": 12,
+      "seconds": 0.16549700000905432
+    },
+    "index.known_count": {
+      "calls": 12,
+      "seconds": 0.0008014999912120402
+    },
+    "index.needs_update": {
+      "calls": 24000,
+      "seconds": 1.5301714039233048
+    },
+    "index.store_file": {
+      "calls": 2000,
+      "seconds": 7.255126301373821
+    },
+    "session.emit_result": {
+      "calls": 24858,
+      "seconds": 0.9013569967355579
+    },
+    "session.prepare_candidates": {
+      "calls": 15,
+      "seconds": 0.41846189997158945
+    },
+    "session.read_and_match": {
+      "calls": 8000,
+      "seconds": 10.429851200577104
+    },
+    "session.store_index": {
+      "calls": 2000,
+      "seconds": 7.2671879000845365
+    },
+    "session.touch_progress": {
+      "calls": 60075,
+      "seconds": 0.05997690401272848
+    }
+  }
+}
