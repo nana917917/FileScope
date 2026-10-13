@@ -463,15 +463,22 @@ class SearchSession:
                 self._touch_progress()
                 return
             # Serialised on purpose: see the note on ``_index_lock``.
+            handled = False
+            pending: FileResult | None = None
             with self._index_lock:
                 with self._lock:
                     self._index_active = True
                 try:
-                    if self._evaluate_from_index(entry, kind):
-                        return
+                    handled, pending = self._evaluate_from_index(entry, kind)
                 finally:
                     with self._lock:
                         self._index_active = False
+            if handled:
+                # Publishing can wait on a full event queue, so it stays outside
+                # the index lane: the next worker must not queue behind it.
+                if pending is not None:
+                    self._publish_result(pending)
+                return
 
         self._read_and_match(entry, kind)
 
@@ -507,27 +514,37 @@ class SearchSession:
             log.warning("index lookup failed for %s: %s", entry.path, exc)
             return False
 
-    def _evaluate_from_index(self, entry: FileEntry, kind: FileKind) -> bool:
-        """Return True when the index answered this file (no file IO)."""
+    def _evaluate_from_index(
+        self, entry: FileEntry, kind: FileKind
+    ) -> tuple[bool, FileResult | None]:
+        """Answer from the index.
+
+        Returns ``(handled, result)``: ``handled`` is True when the index decided
+        the file (so no extraction is needed), and ``result`` is the match to
+        publish, which the caller does after releasing ``_index_lock``.
+        """
         if self.database is None or self.matcher is None:
-            return False
+            return False, None
         if self._searcher is None:
             self._searcher = IndexSearcher(self.database, self.matcher)
         try:
             evaluated = self._searcher.evaluate(entry.path, entry, self._flags(entry))
         except Exception as exc:
             log.warning("index evaluation failed for %s: %s", entry.path, exc)
-            return False
+            return False, None
         with self._lock:
             self.coverage.indexed += 1
             self.coverage.scanned += 1
         if evaluated is None:
-            return True
+            return True, None
         outcome, state = evaluated
+        result = None
         if outcome is Outcome.ACCEPT:
-            self._emit_result(entry, kind, state, from_index=True, ocr_pages=(state.ocr_hit and 1) or 0)
+            result = self._build_result(
+                entry, kind, state, from_index=True, ocr_pages=(state.ocr_hit and 1) or 0
+            )
         self._touch_progress()
-        return True
+        return True, result
 
     def _flags(self, entry: FileEntry) -> RuntimeFlags:
         return RuntimeFlags(
@@ -709,7 +726,22 @@ class SearchSession:
         from_index: bool,
         ocr_pages: int,
     ) -> None:
-        result = FileResult(
+        self._publish_result(
+            self._build_result(
+                entry, kind, state, from_index=from_index, ocr_pages=ocr_pages
+            )
+        )
+
+    def _build_result(
+        self,
+        entry: FileEntry,
+        kind: FileKind,
+        state,
+        *,
+        from_index: bool,
+        ocr_pages: int,
+    ) -> FileResult:
+        return FileResult(
             path=entry.path,
             file_kind=kind,
             size=entry.size,
@@ -726,6 +758,8 @@ class SearchSession:
             confirmed=normalized_key(entry.path) in self.config.confirmed,
             score=state.score(),
         )
+
+    def _publish_result(self, result: FileResult) -> None:
         too_many = False
         with self._lock:
             if len(self._results) >= self.config.max_results:
@@ -736,7 +770,7 @@ class SearchSession:
         if too_many:
             self._add_issue(
                 Issue(
-                    path=entry.path,
+                    path=result.path,
                     code="result-cap",
                     message=f"結果が上限（{self.config.max_results:,}件）に達したため以降を表示しません",
                     severity=Severity.WARN,

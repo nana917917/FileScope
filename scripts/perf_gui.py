@@ -108,6 +108,10 @@ def main() -> int:
     window.root_var.set(args.corpus)
     window.query_var.set(query)
     window._refine_var.set(refine)
+    # ``start_search`` reads ``state.refine_text`` (not the widget variable), so
+    # a preset refine has to be written there as well or the measurement runs
+    # without it.
+    window.state.refine_text = refine
 
     first_visible = None
     finished_at = None

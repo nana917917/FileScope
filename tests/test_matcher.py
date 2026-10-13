@@ -41,6 +41,45 @@ def evaluate(
 
 
 class TestFileLevelAnd:
+    def test_compiled_pattern_ids_are_unique(self) -> None:
+        """The scan plan dedups by pattern id, so ids must never coincide.
+
+        They used to be derived from object addresses, where two patterns can
+        land on the same value; a collision made the second term invisible in
+        every chunk that held both.
+        """
+        seen: dict[int, str] = {}
+        for index in range(200):
+            query = f"2of(_A{index:04d}B, _A{index + 1:04d}B)"
+            matcher = QueryMatcher(parse_query(query), MatchOptions(part_number_mode=True))
+            for pattern in matcher._patterns.values():
+                assert pattern.pattern_id not in seen, (
+                    f"{pattern.text} shares an id with {seen.get(pattern.pattern_id)}"
+                )
+                seen[pattern.pattern_id] = pattern.text
+
+    def test_terms_that_land_in_two_buckets_still_match(self) -> None:
+        """``_A0009B`` is scanned under two first characters; both must count."""
+        text = "見出し _A0009B と _A0010B の記録"
+        outcome, state = evaluate(
+            "2of(_A0009B, _A0010B)",
+            [(text, ChunkKind.LINE, "1行")],
+            part_number=True,
+        )
+        assert outcome is Outcome.ACCEPT
+        assert set(state.matched_terms()) == {"_A0009B", "_A0010B"}
+
+    def test_many_symbol_terms_are_all_matched(self) -> None:
+        terms = [f"_A{index:04d}B" for index in range(10)]
+        text = " ".join(terms)
+        outcome, state = evaluate(
+            " & ".join(terms),
+            [(text, ChunkKind.LINE, "1行")],
+            part_number=True,
+        )
+        assert outcome is Outcome.ACCEPT
+        assert set(state.matched_terms()) == set(terms)
+
     def test_sheets_are_combined(self) -> None:
         outcome, _ = evaluate(
             "AAA&BBB",
