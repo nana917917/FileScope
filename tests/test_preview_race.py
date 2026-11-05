@@ -121,3 +121,21 @@ def test_stale_phase2_cannot_update_new_search(tmp_path):
     assert not MainWindow._apply_full_scan_updates(fake)
     assert new.hit_count == 1
     assert new.matched_terms == ("same.txt",)
+
+
+def test_issue_open_runs_off_ui_thread_and_returns_failure(monkeypatch):
+    import queue
+    import threading
+    from types import SimpleNamespace
+
+    from filescope.ui.main_window import MainWindow
+
+    ui_thread = threading.get_ident()
+    seen = []
+    monkeypatch.setattr("filescope.ui.main_window.shell.open_path",
+                        lambda path: (seen.append(threading.get_ident()) or (False, "denied")))
+    fake = SimpleNamespace(_issue_action_queue=queue.Queue())
+    MainWindow._run_issue_action(fake, "file", r"\\server\share\locked.txt")
+    action, path, ok, error = fake._issue_action_queue.get(timeout=5)
+    assert seen and seen[0] != ui_thread
+    assert (action, path, ok, error) == ("file", r"\\server\share\locked.txt", False, "denied")

@@ -86,6 +86,7 @@ def main() -> int:
         "_visible_rows",
         "_apply_progress",
         "_apply_full_scan_updates",
+        "_on_finished",
         "_rebuild_facets",
         "_on_finished",
     ):
@@ -117,6 +118,7 @@ def main() -> int:
     finished_at = None
     cancel_at = None
     started = time.perf_counter()
+    cpu_started = time.process_time()
     window.start_search()
     start_callback_seconds = time.perf_counter() - started
     cancelled = False
@@ -163,6 +165,7 @@ def main() -> int:
         "finished_seconds": _round(finished_at),
         "start_callback_seconds": _round(start_callback_seconds),
         "search_seconds": _round(getattr(summary, "elapsed", None)),
+        "process_cpu_seconds": _round(time.process_time() - cpu_started),
         "cancel_latency_seconds": _round(cancel_latency),
         "ui": {
             "drain_total_seconds": _round(sum(timings.get("_drain_events", []))),
@@ -177,6 +180,7 @@ def main() -> int:
             "visible_rows_total_seconds": _round(sum(timings.get("_visible_rows", []))),
             "progress_calls": len(timings.get("_apply_progress", [])),
             "scan_update_seconds": _round(sum(timings.get("_apply_full_scan_updates", []))),
+            "finish_max_seconds": _round(_max(timings.get("_on_finished", []))),
             "tick_gap_max_seconds": _round(_max(tick_gaps)),
             "tick_gap_p50_seconds": _round(statistics.median(tick_gaps) if tick_gaps else None),
             "tick_gap_p95_seconds": _round(sorted(tick_gaps)[int(0.95 * (len(tick_gaps) - 1))] if tick_gaps else None),

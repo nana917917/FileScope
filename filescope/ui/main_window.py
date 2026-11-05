@@ -92,6 +92,7 @@ class MainWindow(ttk.Frame):
         self._window_start = 0
         self._last_render_at = 0.0
         self._full_scan_queue: queue.Queue = queue.Queue()
+        self._issue_action_queue: queue.Queue = queue.Queue()
         self._search_generation = 0
         # One font family for the whole window (Windows UI font); only the query
         # field is one point larger than the body text.
@@ -564,6 +565,7 @@ class MainWindow(ttk.Frame):
                     # ``_on_finished`` renders once with every result already in
                     # the model, so the throttled refresh above is not needed.
                     needs_render = False
+        self._drain_issue_action_results()
         # Phase-2 updates only touch their own rows, so the selection and the
         # scroll position are preserved.
         self._apply_full_scan_updates()
@@ -884,6 +886,9 @@ class MainWindow(ttk.Frame):
         row = self.issue_tree.identify_row(event.y)
         if row:
             self.issue_tree.selection_set(row)
+        else:
+            self.issue_tree.selection_remove(self.issue_tree.selection())
+            return "break"
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="ファイルを開く", command=self._open_issue_file)
         menu.add_command(label="フォルダーを開く", command=self._reveal_issue_folder)
@@ -896,15 +901,30 @@ class MainWindow(ttk.Frame):
     def _open_issue_file(self) -> None:
         path = self._selected_issue_path()
         if path:
-            threading.Thread(target=shell.open_path, args=(path,), daemon=True,
-                             name="filescope-open-issue").start()
+            self._run_issue_action("file", path)
 
     def _reveal_issue_folder(self) -> None:
         path = self._selected_issue_path()
         if path:
-            folder = path if os.path.isdir(path) else os.path.dirname(path)
-            threading.Thread(target=shell.open_path, args=(folder,), daemon=True,
-                             name="filescope-open-issue-folder").start()
+            self._run_issue_action("folder", os.path.dirname(path))
+
+    def _run_issue_action(self, action: str, path: str) -> None:
+        def run() -> None:
+            if action == "file":
+                ok, error = shell.open_path(path)
+            else:
+                ok, error = shell.open_path(path)
+            self._issue_action_queue.put((action, path, ok, error))
+
+        threading.Thread(target=run, daemon=True, name="filescope-issue-action").start()
+
+    def _drain_issue_action_results(self) -> None:
+        try:
+            action, path, ok, error = self._issue_action_queue.get_nowait()
+        except queue.Empty:
+            return
+        if not ok:
+            messagebox.showerror("問題一覧", f"{'ファイル' if action == 'file' else 'フォルダー'}を開けませんでした。\n{path}\n\n{error or 'アクセスできないか、対象が見つかりません。'}")
 
     def _copy_issue_path(self) -> None:
         path = self._selected_issue_path()
