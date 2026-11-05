@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import os
 import queue
+import threading
 import time
 import tkinter as tk
 from contextlib import suppress
@@ -54,6 +55,7 @@ DRAIN_MS = 200
 #: consume and the list only redraws when results actually arrived.
 DRAIN_ACTIVE_MS = 100
 DRAIN_BUDGET_SECONDS = 0.012
+FULL_SCAN_BUDGET_SECONDS = 0.006
 #: Rebuilding the result list costs ~15-30 ms per 1,000s of visible rows, so it
 #: is capped while results stream in. Progress counters still update on every
 #: drain; the list catches up at the end of the search.
@@ -374,6 +376,8 @@ class MainWindow(ttk.Frame):
         self.issue_tree.tag_configure("issue_warn", foreground="#8a6d3b")
         self.issue_tree.tag_configure("issue_skip", foreground="#5a5a5a")
         self.issue_tree.pack(fill="x")
+        self.issue_tree.bind("<Double-1>", lambda _event: self._open_issue_file())
+        self.issue_tree.bind("<Button-3>", self._show_issue_context_menu)
 
         self.preview = PreviewPane(right)
         self.preview.pack(fill="both", expand=True)
@@ -665,6 +669,9 @@ class MainWindow(ttk.Frame):
     def _update_columns(self) -> None:
         visible = [key for key, _label, _width in results_module.COLUMNS
                    if self._column_vars[key].get()]
+        if not visible:
+            self._column_vars["name"].set(True)
+            visible = ["name"]
         self.tree.configure(displaycolumns=visible)
         for key, var in self._column_vars.items():
             self.settings.window[f"show_column_{key}"] = int(var.get())
@@ -845,7 +852,8 @@ class MainWindow(ttk.Frame):
     def _apply_full_scan_updates(self) -> bool:
         """UI-thread application of the phase-2 results."""
         updated = False
-        while True:
+        deadline = time.perf_counter() + FULL_SCAN_BUDGET_SECONDS
+        while time.perf_counter() < deadline:
             try:
                 generation, result, hits, evidence, terms, displays = self._full_scan_queue.get_nowait()
             except queue.Empty:
@@ -864,6 +872,45 @@ class MainWindow(ttk.Frame):
                 updated = True
                 break
         return updated
+
+    def _selected_issue_path(self) -> str:
+        selected = self.issue_tree.selection()
+        if not selected:
+            return ""
+        values = self.issue_tree.item(selected[0], "values")
+        return str(values[2]) if len(values) > 2 else ""
+
+    def _show_issue_context_menu(self, event) -> None:
+        row = self.issue_tree.identify_row(event.y)
+        if row:
+            self.issue_tree.selection_set(row)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="ファイルを開く", command=self._open_issue_file)
+        menu.add_command(label="フォルダーを開く", command=self._reveal_issue_folder)
+        menu.add_command(label="パスをコピー", command=self._copy_issue_path)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _open_issue_file(self) -> None:
+        path = self._selected_issue_path()
+        if path:
+            threading.Thread(target=shell.open_path, args=(path,), daemon=True,
+                             name="filescope-open-issue").start()
+
+    def _reveal_issue_folder(self) -> None:
+        path = self._selected_issue_path()
+        if path:
+            folder = path if os.path.isdir(path) else os.path.dirname(path)
+            threading.Thread(target=shell.open_path, args=(folder,), daemon=True,
+                             name="filescope-open-issue-folder").start()
+
+    def _copy_issue_path(self) -> None:
+        path = self._selected_issue_path()
+        if path:
+            self.clipboard_clear()
+            self.clipboard_append(path)
 
     # ------------------------------------------------------------- facets
     def _rebuild_facets(self) -> None:
