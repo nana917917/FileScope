@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import os
 from dataclasses import dataclass, field
 
 from ..config import Settings
@@ -159,6 +160,10 @@ class UiState:
     # ------------------------------------------------------------ results
 
 
+def display_kind(result) -> str:
+    return "CSV" if os.path.splitext(result.path)[1].lower() == ".csv" else result.file_kind.value
+
+
 def apply_filters(rows: list, state: UiState, confirmed: set[str]) -> list:
     """Facet + confirmed filters, applied in memory (spec sections 43, 46).
 
@@ -168,7 +173,7 @@ def apply_filters(rows: list, state: UiState, confirmed: set[str]) -> list:
     out: list = []
     for row in rows:
         result = getattr(row, "result", row)
-        if state.facet_kinds and result.file_kind.value not in state.facet_kinds:
+        if state.facet_kinds and display_kind(result) not in state.facet_kinds:
             continue
         if state.facet_sources and result.source_type.value not in state.facet_sources:
             continue

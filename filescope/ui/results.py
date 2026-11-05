@@ -12,6 +12,8 @@ import time
 from dataclasses import dataclass
 
 from ..core.models import CLOUD_LABELS, SOURCE_LABELS, FileResult
+from ..core.paths import normalized_key
+from .state import display_kind
 
 COLUMNS: tuple[tuple[str, str, int], ...] = (
     ("confirmed", "済", 30),
@@ -41,6 +43,7 @@ class ResultModel:
 
     def __init__(self) -> None:
         self.all_rows: list[Row] = []
+        self._paths: set[str] = set()
         self.visible: list[Row] = []
         self.offset = 0
         self.sort_column = "relevance"
@@ -48,6 +51,10 @@ class ResultModel:
 
     # ------------------------------------------------------------- content
     def add(self, result: FileResult, *, confirmed: bool) -> None:
+        key = normalized_key(result.path)
+        if key in self._paths:
+            return
+        self._paths.add(key)
         self.all_rows.append(Row(result=result, confirmed=confirmed))
 
     def update_confirmed(self, path: str, confirmed: bool) -> None:
@@ -57,6 +64,7 @@ class ResultModel:
 
     def clear(self) -> None:
         self.all_rows.clear()
+        self._paths.clear()
         self.visible.clear()
         self.offset = 0
 
@@ -84,7 +92,7 @@ class ResultModel:
         if column == "hits":
             return result.hit_count
         if column == "kind":
-            return result.file_kind.value
+            return display_kind(result)
         if column == "modified":
             return result.mtime_ns
         if column == "size":
@@ -113,7 +121,7 @@ def values_for(row: Row, ocr_available: bool = True) -> tuple[str, ...]:
     source = SOURCE_LABELS.get(result.source_type, "?")
     if result.cloud_state.value in ("online", "pinned"):
         source = f"{source} {CLOUD_LABELS[result.cloud_state]}"
-    kind = result.file_kind.value
+    kind = display_kind(result)
     if result.from_index:
         kind = f"{kind}*"
     ocr = ""

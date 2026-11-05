@@ -118,6 +118,7 @@ def main() -> int:
     cancel_at = None
     started = time.perf_counter()
     window.start_search()
+    start_callback_seconds = time.perf_counter() - started
     cancelled = False
     while True:
         root.update()
@@ -160,6 +161,7 @@ def main() -> int:
         "tree_rows": len(window.tree.get_children()),
         "first_result_visible_seconds": _round(first_visible),
         "finished_seconds": _round(finished_at),
+        "start_callback_seconds": _round(start_callback_seconds),
         "search_seconds": _round(getattr(summary, "elapsed", None)),
         "cancel_latency_seconds": _round(cancel_latency),
         "ui": {
@@ -177,6 +179,7 @@ def main() -> int:
             "scan_update_seconds": _round(sum(timings.get("_apply_full_scan_updates", []))),
             "tick_gap_max_seconds": _round(_max(tick_gaps)),
             "tick_gap_p50_seconds": _round(statistics.median(tick_gaps) if tick_gaps else None),
+            "tick_gap_p95_seconds": _round(sorted(tick_gaps)[int(0.95 * (len(tick_gaps) - 1))] if tick_gaps else None),
             "tick_gaps_over_100ms": sum(1 for gap in tick_gaps if gap > 0.1),
         },
         "elapsed_to_grace_end": _round(time.perf_counter() - started),

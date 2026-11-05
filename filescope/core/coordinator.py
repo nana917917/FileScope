@@ -209,8 +209,6 @@ class SearchSession:
                 ocr_languages=self.config.ocr_languages,
             )
         self.events.put(events.Started(query=self.config.query, mode=self.config.mode, roots=self.config.roots))
-        self._prepare_index_candidates()
-
         general_workers = max(1, self.config.workers)
         self._threads.append(threading.Thread(target=self._enumerate, name="filescope-discovery", daemon=True))
         for index in range(general_workers):
@@ -275,7 +273,12 @@ class SearchSession:
 
     def _enumerate(self) -> None:
         try:
+            # Candidate generation may scan a large SQLite index. It must finish
+            # before discovery dispatches entries, but need not block Tk.
+            if not self.cancel_event.is_set():
+                self._prepare_index_candidates()
             per_root_keys: dict[str, set[str]] = {}
+            dispatched: set[str] = set()
             for root in self.config.roots:
                 if self.cancel_event.is_set():
                     break
@@ -294,15 +297,19 @@ class SearchSession:
                     if isinstance(item, Issue):
                         self._add_issue(item)
                         continue
-                    with self._lock:
-                        self.coverage.discovered += 1
-                        discovered = self.coverage.discovered
+                    key = normalized_key(item.path)
                     if len(keys) < MAX_INDEX_TRACKED_KEYS:
-                        keys.add(normalized_key(item.path))
+                        keys.add(key)
                     else:
                         # Too many files to prove which index rows are stale;
                         # deleting them would be worse than leaving them.
                         complete = False
+                    if key in dispatched:
+                        continue
+                    dispatched.add(key)
+                    with self._lock:
+                        self.coverage.discovered += 1
+                        discovered = self.coverage.discovered
                     if discovered % 500 == 0:
                         self.events.put(events.Discovered(count=discovered, root=root))
                         self._touch_progress()

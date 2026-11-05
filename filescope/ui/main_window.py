@@ -41,6 +41,7 @@ from .preview import PreviewPane
 from .state import (
     UiState,
     apply_filters,
+    display_kind,
     apply_preset,
     preset_from_state,
     record_history,
@@ -52,6 +53,7 @@ DRAIN_MS = 200
 #: While a search is running the UI drains more often: the events are cheap to
 #: consume and the list only redraws when results actually arrived.
 DRAIN_ACTIVE_MS = 100
+DRAIN_BUDGET_SECONDS = 0.012
 #: Rebuilding the result list costs ~15-30 ms per 1,000s of visible rows, so it
 #: is capped while results stream in. Progress counters still update on every
 #: drain; the list catches up at the end of the search.
@@ -453,6 +455,7 @@ class MainWindow(ttk.Frame):
             self.settings.remember_root(root)
         self.root_combo.configure(values=self.settings.recent_roots)
         self.model.clear()
+        self._window_start = 0
         self._clear_issues()
         self._render_results()
         self.preview.clear()
@@ -510,7 +513,9 @@ class MainWindow(ttk.Frame):
         needs_render = False
         if session is not None:
             processed = 0
-            while processed < 2000:
+            deadline = time.perf_counter() + DRAIN_BUDGET_SECONDS
+            confirmed = self.settings.confirmed_set()
+            while processed < 2000 and time.perf_counter() < deadline:
                 try:
                     event = session.events.get_nowait()
                 except queue.Empty:
@@ -519,7 +524,7 @@ class MainWindow(ttk.Frame):
                 if isinstance(event, events.ResultAdded):
                     self.model.add(
                         event.result,
-                        confirmed=normalized_key(event.result.path) in self.settings.confirmed_set(),
+                        confirmed=normalized_key(event.result.path) in confirmed,
                     )
                     needs_render = True
                 elif isinstance(event, events.IssueAdded):
@@ -648,7 +653,7 @@ class MainWindow(ttk.Frame):
         self._last_render_at = time.perf_counter()
         rows = self._visible_rows()
         self.model.apply_view(rows)
-        self._fill_window(0)
+        self._fill_window(self._window_start)
         self._status_count()
 
     def _status_count(self) -> None:
@@ -841,7 +846,8 @@ class MainWindow(ttk.Frame):
         ocr_count = 0
         for row in self.model.all_rows:
             result = row.result
-            counts_kind[result.file_kind.value] = counts_kind.get(result.file_kind.value, 0) + 1
+            kind = display_kind(result)
+            counts_kind[kind] = counts_kind.get(kind, 0) + 1
             counts_source[result.source_type.value] = counts_source.get(result.source_type.value, 0) + 1
             if result.ocr_pages:
                 ocr_count += 1
