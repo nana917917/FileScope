@@ -1,0 +1,64 @@
+name: Portable candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/search-ui-responsiveness
+    paths:
+      - '.github/workflows/portable-candidate.yml'
+      - 'FileScope.spec'
+      - 'filescope/**'
+      - 'scripts/build_release_zip.ps1'
+      - 'scripts/portable_smoke.ps1'
+      - 'requirements.txt'
+      - 'VERSION.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out candidate branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          ./scripts/build_release_zip.ps1 -Version "5.1.1-actions-${{ github.run_number }}" -OutputDirectory dist -Label win64
+
+      - name: Smoke test portable build and compare source results
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist -Filter 'FileScope-v*-win64.zip' | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $zip) { throw 'Candidate ZIP was not created' }
+          ./scripts/portable_smoke.ps1 -Zip $zip -Keep
+          if ($LASTEXITCODE -ne 0) { throw "Portable smoke failed with exit code $LASTEXITCODE" }
+
+      - name: Write SHA-256 manifest
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist -Filter 'FileScope-v*-win64.zip' | Select-Object -First 1
+          $hash = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($zip.Name)" | Set-Content -LiteralPath (Join-Path dist 'SHA256SUMS.txt') -Encoding ascii
+          Write-Host "SHA-256 $hash  $($zip.Name)"
+
+      - name: Upload downloadable candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileScope-portable-candidate-${{ github.run_number }}
+          path: |
+            dist/FileScope-v*-win64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
