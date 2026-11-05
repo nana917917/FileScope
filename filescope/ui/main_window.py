@@ -41,8 +41,8 @@ from .preview import PreviewPane
 from .state import (
     UiState,
     apply_filters,
-    display_kind,
     apply_preset,
+    display_kind,
     preset_from_state,
     record_history,
 )
@@ -90,6 +90,7 @@ class MainWindow(ttk.Frame):
         self._window_start = 0
         self._last_render_at = 0.0
         self._full_scan_queue: queue.Queue = queue.Queue()
+        self._search_generation = 0
         # One font family for the whole window (Windows UI font); only the query
         # field is one point larger than the body text.
         import tkinter.font as tkfont
@@ -315,6 +316,18 @@ class MainWindow(ttk.Frame):
         self.facet_inner = ttk.Frame(self.facet_frame)
         self.facet_inner.pack(fill="x")
 
+        column_button = ttk.Menubutton(refine, text="列表示")
+        column_button.pack(side="right", padx=4)
+        column_menu = tk.Menu(column_button, tearoff=False)
+        column_button.configure(menu=column_menu)
+        self._column_vars = {}
+        default_columns = {"confirmed", "name", "displays", "hits", "kind", "path"}
+        for key, label, _width in results_module.COLUMNS:
+            var = tk.BooleanVar(value=bool(self.settings.window.get(
+                f"show_column_{key}", int(key in default_columns))))
+            self._column_vars[key] = var
+            column_menu.add_checkbutton(label=label, variable=var, command=self._update_columns)
+
         tree_area = ttk.Frame(left)
         tree_area.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(
@@ -327,6 +340,7 @@ class MainWindow(ttk.Frame):
             self.tree.heading(key, text=label, command=lambda column=key: self.sort_by(column))
             saved_width = _bounded_layout_value(self.settings, f"column_{key}", width, 24, 2000)
             self.tree.column(key, width=saved_width, anchor="w", stretch=(key in ("name", "path")))
+        self._update_columns()
         for tag, options in results_module.TAGS.items():
             self.tree.tag_configure(tag, **options)
 
@@ -450,6 +464,8 @@ class MainWindow(ttk.Frame):
             return
         if self.session is not None and not self.session.finished:
             self.session.cancel()
+
+        self._search_generation += 1
 
         for root in roots:
             self.settings.remember_root(root)
@@ -646,6 +662,13 @@ class MainWindow(ttk.Frame):
         self.issues_frame.pack_forget()
 
     # ------------------------------------------------------------- results
+    def _update_columns(self) -> None:
+        visible = [key for key, _label, _width in results_module.COLUMNS
+                   if self._column_vars[key].get()]
+        self.tree.configure(displaycolumns=visible)
+        for key, var in self._column_vars.items():
+            self.settings.window[f"show_column_{key}"] = int(var.get())
+
     def _visible_rows(self) -> list:
         return apply_filters(self.model.all_rows, self.state, self.settings.confirmed_set())
 
@@ -755,11 +778,14 @@ class MainWindow(ttk.Frame):
             # Already displayed: do not restart the (expensive) load.
             return
         config = self.state.to_config(self.settings)
+        generation = self._search_generation
+        matcher = self.session.matcher if self.session is not None else None
         self.preview.show(
-            result, config, search_text=self.state.query, on_chunks=self._on_preview_chunks
+            result, config, search_text=self.state.query,
+            on_chunks=lambda item, chunks: self._on_preview_chunks(item, chunks, generation, matcher),
         )
 
-    def _on_preview_chunks(self, result, chunks) -> None:
+    def _on_preview_chunks(self, result, chunks, generation, matcher) -> None:
         """Worker-thread callback: compute the exact hit set for one file.
 
         ``result`` is the file the chunks belong to (not whatever row happens to
@@ -768,7 +794,6 @@ class MainWindow(ttk.Frame):
         """
         if result.hit_count_exact:
             return
-        matcher = self._current_matcher()
         if matcher is None:
             return
         from ..core.matcher import Outcome
@@ -788,7 +813,8 @@ class MainWindow(ttk.Frame):
         if state.finish() is Outcome.ACCEPT:
             self._full_scan_queue.put(
                 (
-                    result.path,
+                    generation,
+                    result,
                     state.hit_count,
                     state.evidence(),
                     state.matched_terms(),
@@ -821,11 +847,13 @@ class MainWindow(ttk.Frame):
         updated = False
         while True:
             try:
-                path, hits, evidence, terms, displays = self._full_scan_queue.get_nowait()
+                generation, result, hits, evidence, terms, displays = self._full_scan_queue.get_nowait()
             except queue.Empty:
                 break
+            if generation != self._search_generation:
+                continue
             for index, row in enumerate(self.model.visible):
-                if row.result.path != path:
+                if row.result is not result:
                     continue
                 row.result.hit_count = hits
                 row.result.hit_count_exact = True

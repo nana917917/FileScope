@@ -160,6 +160,7 @@ class PreviewPane(ttk.Frame):
         ).start()
 
     def clear(self) -> None:
+        self._token += 1
         self._current = None
         self.title_var.set("プレビュー")
         self.match_var.set("")

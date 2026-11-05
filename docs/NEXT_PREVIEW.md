@@ -17,3 +17,13 @@ Outstanding: native interactive UI, SMB, memory and CPU comparison, cancellation
 latency under load, process isolation experiment, completion and preview stalls,
 column settings, match explanations, and issue-list operations. Candidate is not
 a release. Existing settings and index formats are unchanged.
+
+## Follow-up preview
+
+Preview phase-two updates carry the original search generation and result
+identity; clearing the preview invalidates pending rendering. Column visibility
+is configurable and stored with window settings. In a single hidden-Tk run on
+the same generated 10,000-file direct corpus, the follow-up took 3.65 s; timer
+gap p95 was 84.5 ms, maximum 136.3 ms, and the longest drain was 99.7 ms.
+The timer includes its 40 ms polling period. No interactive or SMB claim is
+made; full redraw and completion processing remain unbounded.

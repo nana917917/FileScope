@@ -96,9 +96,28 @@ def test_phase2_callback_carries_its_own_file(tmp_path) -> None:
     analysed = make_result(tmp_path, "analysed.txt")
     selected_now = make_result(tmp_path, "selected.txt")
     fake._on_preview_chunks(  # type: ignore[attr-defined]
-        analysed, [Chunk(text="AAA AAA", kind=ChunkKind.LINE, location="1行")]
+        analysed, [Chunk(text="AAA AAA", kind=ChunkKind.LINE, location="1行")],
+        1, fake._current_matcher(),
     )
-    path, hits, _evidence, _terms, _displays = fake._full_scan_queue.get_nowait()
-    assert path == analysed.path
+    generation, result, hits, _evidence, _terms, _displays = fake._full_scan_queue.get_nowait()
+    assert generation == 1
+    assert result is analysed
     assert hits == 2
-    assert selected_now.path != path
+    assert selected_now.path != result.path
+
+
+def test_stale_phase2_cannot_update_new_search(tmp_path):
+    import queue
+    from types import SimpleNamespace
+
+    from filescope.ui.main_window import MainWindow
+
+    old = make_result(tmp_path, "same.txt")
+    new = make_result(tmp_path, "same.txt")
+    pending = queue.Queue()
+    pending.put((1, old, 99, [], ("old",), ("old",)))
+    fake = SimpleNamespace(_full_scan_queue=pending, _search_generation=2,
+                           model=SimpleNamespace(visible=[SimpleNamespace(result=new)]))
+    assert not MainWindow._apply_full_scan_updates(fake)
+    assert new.hit_count == 1
+    assert new.matched_terms == ("same.txt",)
