@@ -37,13 +37,52 @@ jobs:
         run: |
           ./scripts/build_release_zip.ps1 -Version "5.1.1-actions-${{ github.run_number }}" -OutputDirectory dist -Label win64
 
-      - name: Smoke test portable build and compare source results
+      - name: Verify diagnostics, search equivalence, and GUI startup
         shell: pwsh
+        timeout-minutes: 10
         run: |
           $zip = Get-ChildItem dist -Filter 'FileScope-v*-win64.zip' | Select-Object -First 1 -ExpandProperty FullName
           if (-not $zip) { throw 'Candidate ZIP was not created' }
-          ./scripts/portable_smoke.ps1 -Zip $zip -Keep
-          if ($LASTEXITCODE -ne 0) { throw "Portable smoke failed with exit code $LASTEXITCODE" }
+          $work = Join-Path $env:RUNNER_TEMP 'filescope-actions-smoke'
+          $portable = Join-Path $work 'portable'
+          $appdata = Join-Path $work 'appdata'
+          $corpus = Join-Path $work 'corpus'
+          New-Item -ItemType Directory -Force -Path $portable, $appdata | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath $portable
+          $exe = Join-Path $portable 'FileScope.exe'
+          $python = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
+          if (-not (Test-Path $exe)) { throw 'FileScope.exe missing from candidate ZIP' }
+          $env:LOCALAPPDATA = $appdata
+          $env:TEMP = Join-Path $work 'temp'
+          $env:TMP = $env:TEMP
+          New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+          Push-Location $env:GITHUB_WORKSPACE
+          & $python -c "from tools.make_corpus import build_corpus; build_corpus(r'$corpus', with_ocr_image=False)"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create synthetic smoke corpus' }
+          Pop-Location
+
+          $diag = Start-Process -FilePath $exe -ArgumentList @('--diagnostics','--out',(Join-Path $work 'diagnostics.txt')) -PassThru -Wait -WindowStyle Hidden
+          if ($diag.ExitCode -ne 0 -or -not (Test-Path (Join-Path $work 'diagnostics.txt'))) { throw 'Frozen diagnostics failed' }
+          $frozen = Join-Path $work 'frozen.json'
+          $frozenRun = Start-Process -FilePath $exe -ArgumentList @('--search',$corpus,'--query','AAA&BBB','--json','--out',$frozen) -PassThru -Wait -WindowStyle Hidden
+          if ($frozenRun.ExitCode -ne 0 -or -not (Test-Path $frozen)) { throw 'Frozen search failed' }
+          $source = Join-Path $work 'source.json'
+          Push-Location $env:GITHUB_WORKSPACE
+          $env:PYTHONPATH = (Get-Location).Path
+          & $python -m filescope --search $corpus --query 'AAA&BBB' --json --out $source
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $source)) { throw 'Source search failed' }
+          Pop-Location
+          $frozenPaths = ((Get-Content $frozen -Raw | ConvertFrom-Json).results | ForEach-Object { Split-Path $_.path -Leaf } | Sort-Object) -join ','
+          $sourcePaths = ((Get-Content $source -Raw | ConvertFrom-Json).results | ForEach-Object { Split-Path $_.path -Leaf } | Sort-Object) -join ','
+          if ($frozenPaths -ne $sourcePaths) { throw "Frozen/source result mismatch: $frozenPaths <> $sourcePaths" }
+          Write-Host "PASS diagnostics, headless search, source equivalence ($frozenPaths)"
+
+          $gui = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 6
+          $gui.Refresh()
+          if ($gui.HasExited) { throw 'Frozen GUI exited during startup check' }
+          $gui.Kill()
+          Write-Host 'PASS GUI process remained alive for 6 seconds'
 
       - name: Write SHA-256 manifest
         shell: pwsh
