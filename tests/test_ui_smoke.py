@@ -70,6 +70,48 @@ def pump(root, seconds: float) -> None:
 
 
 class TestMainWindow:
+    def test_kind_filter_always_lists_csv_and_other_types(self, tk_root, isolated_paths) -> None:
+        window = MainWindow(tk_root, settings=Settings())
+
+        labels = [
+            window._kind_filter_menu.entrycget(index, "label")
+            for index in range(window._kind_filter_menu.index("end") + 1)
+        ]
+        assert any(label.startswith("CSV (0)") for label in labels)
+        assert any(label.startswith("Excel (0)") for label in labels)
+        assert any(label.startswith("その他") for label in labels)
+        shutdown(window)
+
+    def test_tree_scroll_callback_maps_full_result_model(self, tk_root, isolated_paths, tmp_path) -> None:
+        from filescope.core.models import CloudState, FileKind, FileResult, SourceType
+
+        window = MainWindow(tk_root, settings=Settings())
+        for index in range(1_000):
+            window.model.add(
+                FileResult(
+                    path=str(tmp_path / f"f{index:04d}.txt"),
+                    file_kind=FileKind.TEXT,
+                    size=8,
+                    mtime_ns=0,
+                    source_type=SourceType.LOCAL,
+                    cloud_state=CloudState.LOCAL,
+                ),
+                confirmed=False,
+            )
+        window._render_results()
+        tk_root.update_idletasks()
+
+        capacity = window._visible_row_capacity()
+        assert len(window.tree.get_children()) <= capacity + results_module.OVERSCAN
+        assert window.scrollbar.get() == pytest.approx((0.0, capacity / 1_000))
+
+        window._on_scroll("moveto", "0.5")
+        assert abs(window._window_start - 500) <= 1
+        window._on_scroll("moveto", "1.0")
+        assert window._window_start == 1_000 - capacity
+        assert str(999) in window.tree.get_children()
+        shutdown(window)
+
     def test_invalid_saved_layout_values_fall_back_to_defaults(self, tk_root, isolated_paths) -> None:
         settings = Settings()
         settings.index_enabled = False
@@ -501,10 +543,18 @@ class TestAcceptance:
             )
 
         window._on_finished(summary(cancelled=True))
-        assert window._status_text.get().startswith("中断:")
+        assert window._status_text.get().startswith("検索中断｜")
+        assert "結果保存中" in window._progress_text.get()
+        assert window._autosave_thread is not None
+        window._autosave_thread.join(timeout=2)
+        window._drain_autosave_results()
+        assert "results.csv" in window._status_text.get()
         window._on_finished(summary(cancelled=False))
+        assert window._autosave_thread is not None
+        window._autosave_thread.join(timeout=2)
+        window._drain_autosave_results()
         status = window._status_text.get()
-        assert status.startswith("完了:")
+        assert status.startswith("検索完了｜")
         assert "results.csv" in status
         assert str(tmp_path) not in status, "the full session path must not be shown"
         shutdown(window)

@@ -840,13 +840,15 @@ class SearchSession:
         """Coarse phase label; never claims progress it cannot prove."""
         if self.cancel_event.is_set():
             return "中断しています"
+        if not self._pause_event.is_set():
+            return "一時停止中"
         if not self._discovery_done:
             return "フォルダを確認しています"
         if self._pdf_active:
             return "PDFの文字を読み取っています"
         if self._index_active:
             return "保存済みの検索情報を確認しています"
-        return "検索しています"
+        return "ファイル探索終了・本文検索中"
 
     def _push(self, event: object, *, droppable: bool = False) -> None:
         """Push an event; progress events are dropped rather than blocking.

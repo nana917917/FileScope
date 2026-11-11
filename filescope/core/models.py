@@ -190,7 +190,7 @@ class Coverage:
 
     def line(self) -> str:
         return (
-            f"発見 {self.discovered:,} / 検索完了 {self.scanned:,} / Hit {self.hits:,}資料"
+            f"発見 {self.discovered:,} / 本文確認 {self.scanned:,} / Hit {self.hits:,}資料"
             f" / 索引 {self.indexed:,} / 実読込 {self.read:,}"
             f" / OCR {self.ocr_pages:,}ページ"
             f" / Online-only skip {self.skipped_online:,}"
@@ -198,9 +198,10 @@ class Coverage:
             + (f" / エラー {self.errors:,}" if self.errors else "")
         )
 
-    def summary_line(self) -> str:
-        """Short end-of-search summary for the status bar."""
-        parts = [f"検索完了 {self.scanned:,}件"]
+    def summary_line(self, headline: str | None = None) -> str:
+        """Persistent end state plus the reasons some discovered items were skipped."""
+        parts = [headline] if headline else [f"検索完了 {self.scanned:,}件"]
+        parts.append(f"本文確認 {self.scanned:,}件")
         if self.skipped_type:
             parts.append(f"対象外 {self.skipped_type:,}")
         if self.skipped_online:
@@ -211,8 +212,6 @@ class Coverage:
             parts.append(f"警告 {self.warnings:,}")
         if self.errors:
             parts.append(f"エラー {self.errors:,}")
-        if self.cancelled:
-            parts.append("中断")
         return " / ".join(parts)
 
 

@@ -32,6 +32,24 @@ WINDOW_ROWS = 300       # rows kept in the widget at once
 OVERSCAN = 60
 
 
+def visible_window(total: int, requested_start: int, visible_rows: int) -> tuple[int, int]:
+    """Return the clamped virtual-list window and its logical end index."""
+    total = max(0, total)
+    visible_rows = max(1, min(WINDOW_ROWS, visible_rows))
+    start = max(0, min(requested_start, max(0, total - visible_rows)))
+    materialized = min(WINDOW_ROWS, visible_rows + OVERSCAN)
+    return start, min(total, start + materialized)
+
+
+def scrollbar_fractions(total: int, start: int, visible_rows: int) -> tuple[float, float]:
+    """Map the visible viewport (not the cache window) onto the full result set."""
+    if total <= 0 or total <= visible_rows:
+        return 0.0, 1.0
+    start = max(0, min(start, total - max(1, visible_rows)))
+    first = start / total
+    return first, min(1.0, first + visible_rows / total)
+
+
 @dataclass
 class Row:
     result: FileResult

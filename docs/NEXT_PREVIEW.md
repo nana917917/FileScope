@@ -1,29 +1,44 @@
-# Next preview: responsiveness and results
+# 次期候補メモ（未公開）
 
-Unreleased work based on v5.1.1. Index candidate generation runs on the
-discovery thread; event draining has a 12 ms per-pass budget, excluding redraws.
-The result window retains its scroll offset. Overlapping roots are deduplicated
-by normalized absolute path, without resolving symlinks or network aliases.
-CSV has a separate display facet; TSV remains Text and extraction is unchanged.
+基準ソースは正式版 v5.1.1（`4c11e4e`）、候補は本ブランチです。正式Releaseは作成しません。
 
-On generated local text data, one baseline/candidate run before the later
-deduplication and CSV changes found 10,000-file direct search times of 3.48/3.42 s,
-40 ms timer gap p95 of 64/45 ms, and maximum gap of 116/123 ms. For 2,000
-warm-indexed files, start callback times were 32.8/2.9 ms and search times
-0.509/0.502 s. These single hidden-window measurements do not establish
-interactive usability or represent the final candidate's performance.
+## 変更
 
-Outstanding: native interactive UI, SMB, memory and CPU comparison, cancellation
-latency under load, process isolation experiment, completion and preview stalls,
-column settings, match explanations, and issue-list operations. Candidate is not
-a release. Existing settings and index formats are unchanged.
+- 結果一覧のスクロール範囲を、300行の描画キャッシュではなくTreeviewの表示可能行数と全結果件数から算出します。描画窓は表示行数＋60行までとし、結果数・スクロール位置・選択中ファイルに基づいて再描画します。PageUp/Down、Home/End、上下キーも追加しました。
+- 種類フィルターを常設メニューにし、結果が0件のときもExcel、CSV、PDF、Word、PowerPoint、Text、Archive、未知形式を表示します。件数と複数選択を維持し、解除操作を常設しました。検索対象は「Text（CSV含む）」と明示します。
+- 検索状態を「待機中」「検索準備中」「中断処理中」、進捗イベントの検索フェーズ、完了・一部未確認・上限到達・中断・検索エラーに分けます。対象外形式は意図的な除外として別表示し、アクセス/読取エラー、OneDrive未取得、サイズ超過、警告は完了状態の補足に残します。カバレッジ欄は完了を断定しない「本文確認」へ変更しました。
+- SMB共有の存在確認でGUIスレッドを止めないため、検索開始時の同期 `isdir` を外し、探索側の問題通知へ委ねます。
 
-## Follow-up preview
+検索抽出・索引形式・検索式の意味は変更していません。CSV/同一パス排除/プレビュー世代管理/列表示設定/問題一覧操作は維持しています。別プロセス化は採用していません。
 
-Preview phase-two updates carry the original search generation and result
-identity; clearing the preview invalidates pending rendering. Column visibility
-is configurable and stored with window settings. In a single hidden-Tk run on
-the same generated 10,000-file direct corpus, the follow-up took 3.65 s; timer
-gap p95 was 84.5 ms, maximum 136.3 ms, and the longest drain was 99.7 ms.
-The timer includes its 40 ms polling period. No interactive or SMB claim is
-made; full redraw and completion processing remain unbounded.
+## 合成データ性能（同一Windows PC、1万件、直接検索、索引OFF、検索語「評価」）
+
+v5.1.1作業ツリー（`_scratch/responsiveness-v511`）と候補を各3回測定。40ms Tkタイマーを隠しTkで採取しているため、ここでいう遅延にはタイマー周期が含まれ、実利用のマウス/スクロール応答を保証しません。
+
+| 指標（中央値、3回） | v5.1.1 | 候補 |
+| --- | ---: | ---: |
+| 検索時間 | 3.504秒 | 3.450秒 |
+| プロセスCPU時間 | 6.094秒 | 5.828秒 |
+| ピークWorking Set | 65.3 MiB | 67.5 MiB |
+| タイマー間隔 p50 | 41.4 ms | 41.5 ms |
+| タイマー間隔 p95 | 48.3 ms | 43.6 ms |
+| タイマー間隔 最大 | 121.1 ms | 86.9 ms |
+| `_drain_events` 最大 | 80.9 ms | 45.9 ms |
+| `_render_results` 最大 | 78.2 ms | 34.5 ms |
+| `_fill_window` 最大 | 61.1 ms | 16.4 ms |
+| スクロール位置ジャンプ処理 最大 | 7.6 ms | 2.5 ms |
+| `_on_finished` 最大 | 46.8 ms | 44.0 ms |
+
+検索時間・CPUは悪化していません。ピークWorking Setは約2.2 MiB増えました。描画窓縮小による停止時間は改善しましたが、タイマーp50と初回結果表示は実質同等〜候補側が約20ms遅い範囲で、明確な操作感の改善を示すデータではありません。中断は各1回の合成データ計測で v5.1.1 16.8ms、候補13.9msでした。
+
+## 検証と制約
+
+- 仮想スクロール計算は結果数 0/1/10/50/299/300/301/1,000/10,000 のテストを追加。1000件のTk Treeviewでモデル全体へのスクロールバー位置ジャンプを確認します。
+- CSV分類、一覧、プレビュー競合などの既存回帰テストを実施します。全体テストと静的チェック結果は候補コミット後に追記します。
+- SMB共有・実Office/PDF/OCR混在資料は未測定です。合成コーパスは既存の生成テキスト資料です。
+- 実画面でのマウスホイール、バーのドラッグ、DPI変更、ファイル選択とプレビューの手操作は未確認です。GUIテストと隠しTk計測を、実操作の確認とは扱いません。
+- 配布ZIPはGitHub ActionsのWindowsランナーで最終ソースから再ビルドし、スモークテスト後にArtifactとして保存します。
+
+追加計測：自動保存を有効にした1万件合成検索を各1回実施。完了コールバックは v5.1.1 の115msに対し、候補はバックグラウンド保存後70msでした（単発値）。保存結果は別スレッドでCSVに書き、UI通知はTkのイベント処理側で反映します。
+
+テスト結果：`pytest -q` は 394 passed / 1 skipped、`ruff check filescope tests scripts` と `git diff --check` は通過。

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 import json
 import os
 import statistics
@@ -38,6 +39,7 @@ def main() -> int:
     parser.add_argument("--refine-preset", default="", choices=["", "power", "none"])
     parser.add_argument("--mode", default="standard")
     parser.add_argument("--index", default="on", choices=["on", "off"])
+    parser.add_argument("--autosave", action="store_true")
     parser.add_argument("--cancel-after", type=float, default=0.0)
     parser.add_argument("--grace", type=float, default=1.5)
     parser.add_argument("--json", default="")
@@ -62,7 +64,7 @@ def main() -> int:
     root.withdraw()
     settings = Settings()
     settings.index_enabled = args.index == "on"
-    settings.autosave_results = False
+    settings.autosave_results = args.autosave
     window = MainWindow(root, settings=settings)
 
     timings: dict[str, list[float]] = {}
@@ -150,6 +152,15 @@ def main() -> int:
         root.update()
         time.sleep(0.002)
 
+    # Exercise the same virtual-window callback used by the scrollbar, but keep
+    # this explicitly separate from physical mouse/scroll verification.
+    seek_latencies: list[float] = []
+    for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+        seek_started = time.perf_counter()
+        window._on_scroll("moveto", str(fraction))
+        root.update_idletasks()
+        seek_latencies.append(time.perf_counter() - seek_started)
+
     summary = window.session.summary if window.session else None
     report = {
         "label": args.label,
@@ -166,6 +177,7 @@ def main() -> int:
         "start_callback_seconds": _round(start_callback_seconds),
         "search_seconds": _round(getattr(summary, "elapsed", None)),
         "process_cpu_seconds": _round(time.process_time() - cpu_started),
+        "peak_working_set_mb": _round(_peak_working_set_mb()),
         "cancel_latency_seconds": _round(cancel_latency),
         "ui": {
             "drain_total_seconds": _round(sum(timings.get("_drain_events", []))),
@@ -177,6 +189,8 @@ def main() -> int:
             "fill_total_seconds": _round(sum(timings.get("_fill_window", []))),
             "fill_calls": len(timings.get("_fill_window", [])),
             "fill_max_seconds": _round(_max(timings.get("_fill_window", []))),
+            "scroll_seek_p50_seconds": _round(statistics.median(seek_latencies)),
+            "scroll_seek_max_seconds": _round(_max(seek_latencies)),
             "visible_rows_total_seconds": _round(sum(timings.get("_visible_rows", []))),
             "progress_calls": len(timings.get("_apply_progress", [])),
             "scan_update_seconds": _round(sum(timings.get("_apply_full_scan_updates", []))),
@@ -207,6 +221,38 @@ def main() -> int:
 
 def _max(values: list[float]) -> float | None:
     return max(values) if values else None
+
+
+def _peak_working_set_mb() -> float | None:
+    """Return this process's peak Windows working set, when available."""
+    if os.name != "nt":
+        return None
+
+    class Counters(ctypes.Structure):
+        _fields_ = [
+            ("cb", ctypes.c_ulong),
+            ("PageFaultCount", ctypes.c_ulong),
+            ("PeakWorkingSetSize", ctypes.c_size_t),
+            ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t),
+        ]
+
+    try:
+        counters = Counters()
+        counters.cb = ctypes.sizeof(counters)
+        function = ctypes.windll.psapi.GetProcessMemoryInfo
+        function.argtypes = [ctypes.c_void_p, ctypes.POINTER(Counters), ctypes.c_ulong]
+        function.restype = ctypes.c_int
+        if function(ctypes.windll.kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            return counters.PeakWorkingSetSize / (1024 * 1024)
+    except (AttributeError, OSError):
+        return None
+    return None
 
 
 def _round(value: float | None, digits: int = 4) -> float | None:

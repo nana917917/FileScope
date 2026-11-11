@@ -85,14 +85,19 @@ class MainWindow(ttk.Frame):
         self._coverage_text = tk.StringVar(value="")
         self._result_count_text = tk.StringVar(value="")
         self._status_text = tk.StringVar(value="")
-        self._progress_text = tk.StringVar(value="")
+        self._progress_text = tk.StringVar(value="待機中")
         self._index_text = tk.StringVar(value="")
         self._refine_var = tk.StringVar(value="")
+        self._kind_filter_vars: dict[str, tk.BooleanVar] = {}
+        self._kind_filter_button: ttk.Menubutton | None = None
         self._issue_rows = 0
         self._window_start = 0
+        self._rendered_capacity = 0
         self._last_render_at = 0.0
         self._full_scan_queue: queue.Queue = queue.Queue()
         self._issue_action_queue: queue.Queue = queue.Queue()
+        self._autosave_result_queue: queue.Queue = queue.Queue()
+        self._autosave_thread: threading.Thread | None = None
         self._search_generation = 0
         # One font family for the whole window (Windows UI font); only the query
         # field is one point larger than the body text.
@@ -108,6 +113,7 @@ class MainWindow(ttk.Frame):
         self._build_menu()
         self._build_form()
         self._build_body()
+        self._rebuild_facets()
         self._build_status()
         self._bind_keys()
         index_started = time.perf_counter()
@@ -245,7 +251,7 @@ class MainWindow(ttk.Frame):
             ("pdf", "PDF"),
             ("word", "Word"),
             ("ppt", "PPT"),
-            ("text", "Text"),
+            ("text", "Text（CSV含む）"),
             ("unknown", "未知形式"),
         ):
             ttk.Checkbutton(exact, text=label, variable=self.kind_vars[key]).pack(side="left", padx=2)
@@ -318,6 +324,27 @@ class MainWindow(ttk.Frame):
         self.facet_frame.pack(fill="x", pady=(0, 4))
         self.facet_inner = ttk.Frame(self.facet_frame)
         self.facet_inner.pack(fill="x")
+        kind_button = ttk.Menubutton(self.facet_inner, text="種類: すべて")
+        kind_button.pack(side="left", padx=2)
+        kind_menu = tk.Menu(kind_button, tearoff=False)
+        kind_button.configure(menu=kind_menu)
+        self._kind_filter_button = kind_button
+        self._kind_filter_menu = kind_menu
+        self._kind_filter_vars = {}
+        self._kind_filter_options = ("Excel", "CSV", "PDF", "Word", "PPT", "Text", "Archive", "?")
+        kind_labels = {"Archive": "その他（Archive）", "?": "その他（未知形式）"}
+        self._kind_filter_labels = kind_labels
+        for kind in self._kind_filter_options:
+            var = tk.BooleanVar(value=kind in self.state.facet_kinds)
+            self._kind_filter_vars[kind] = var
+            kind_menu.add_checkbutton(
+                label=kind_labels.get(kind, kind),
+                variable=var,
+                command=lambda value=kind: self._toggle_facet("kind", value),
+            )
+        self.source_facet_frame = ttk.Frame(self.facet_inner)
+        self.source_facet_frame.pack(side="left", fill="x", expand=True)
+        ttk.Button(self.facet_inner, text="解除", command=self.clear_facets).pack(side="right", padx=6)
 
         column_button = ttk.Menubutton(refine, text="列表示")
         column_button.pack(side="right", padx=4)
@@ -359,6 +386,13 @@ class MainWindow(ttk.Frame):
         self.tree.bind("<Double-1>", lambda _event: self.open_selected())
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<MouseWheel>", self._on_wheel)
+        self.tree.bind("<Prior>", lambda _event: self._scroll_pages(-1))
+        self.tree.bind("<Next>", lambda _event: self._scroll_pages(1))
+        self.tree.bind("<Home>", lambda _event: self._scroll_to_edge(False))
+        self.tree.bind("<End>", lambda _event: self._scroll_to_edge(True))
+        self.tree.bind("<Up>", lambda _event: self._move_selection(-1))
+        self.tree.bind("<Down>", lambda _event: self._move_selection(1))
+        self.tree.bind("<Configure>", self._on_tree_configure)
 
         issues_frame = ttk.LabelFrame(left, text="問題 / 未検索", padding=4)
         self.issues_frame = issues_frame
@@ -460,10 +494,8 @@ class MainWindow(ttk.Frame):
         if not roots:
             messagebox.showinfo("検索場所", "検索するフォルダを指定してください。")
             return
-        missing = [root for root in roots if not os.path.isdir(root)]
-        if missing:
-            messagebox.showerror("検索場所", "フォルダが見つかりません:\n" + "\n".join(missing))
-            return
+        # Avoid stat'ing roots on Tk: SMB and cloud-backed paths can block.
+        # Discovery reports unavailable roots in the issue list.
         if not self.state.combined_query().strip():
             messagebox.showinfo("検索条件", "検索語またはメタ条件を指定してください。")
             return
@@ -481,6 +513,7 @@ class MainWindow(ttk.Frame):
         self._render_results()
         self.preview.clear()
         self._status_text.set("")
+        self._progress_text.set("検索準備中")
         self._start_progress()
         self.search_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
@@ -508,7 +541,7 @@ class MainWindow(ttk.Frame):
     def cancel_search(self) -> None:
         if self.session is not None:
             self.session.cancel()
-            self._status_text.set("中断しています…")
+            self._progress_text.set("中断処理中…")
 
     def toggle_pause(self) -> None:
         if self.session is None:
@@ -516,7 +549,10 @@ class MainWindow(ttk.Frame):
         paused = not self.session.paused
         self.session.set_paused(paused)
         self.pause_button.configure(text="再開" if paused else "一時停止")
-        self._status_text.set("一時停止中" if paused else "")
+        self._progress_text.set(
+            f"一時停止中｜{self.session.coverage.scanned:,}件処理済み｜{self.session.coverage.hits:,}資料一致"
+            if paused else "検索を再開しています…"
+        )
 
     def _on_escape(self) -> None:
         if self.session is not None and not self.session.finished:
@@ -556,8 +592,10 @@ class MainWindow(ttk.Frame):
                     self._coverage_text.set(event.coverage.line())
                 elif isinstance(event, events.QueryFailed):
                     messagebox.showerror("検索式エラー", event.message)
+                    self._stop_progress()
                     self._finish_buttons()
                     self._status_text.set(f"検索式エラー: {event.message}")
+                    self._progress_text.set("検索エラー｜検索条件を確認してください")
                     self.query_entry.focus_set()
                     self.query_entry.selection_range(0, "end")
                 elif isinstance(event, events.Finished):
@@ -566,6 +604,7 @@ class MainWindow(ttk.Frame):
                     # the model, so the throttled refresh above is not needed.
                     needs_render = False
         self._drain_issue_action_results()
+        self._drain_autosave_results()
         # Phase-2 updates only touch their own rows, so the selection and the
         # scroll position are preserved.
         self._apply_full_scan_updates()
@@ -591,24 +630,63 @@ class MainWindow(ttk.Frame):
         self._finish_buttons()
         self._stop_progress()
         self._coverage_text.set(summary.coverage.line())
-        self._progress_text.set(summary.coverage.summary_line())
         elapsed = summary.elapsed
-        if summary.coverage.cancelled:
-            status = f"中断: {len(summary.results):,}資料 / {elapsed:.1f}秒"
+        if summary.truncated:
+            status = (
+                f"検索終了（結果上限）｜{summary.coverage.scanned:,}件処理済み｜"
+                f"{len(summary.results):,}資料一致｜{elapsed:.1f}秒"
+            )
+        elif summary.coverage.cancelled:
+            status = f"検索中断｜{summary.coverage.scanned:,}件処理済み｜{len(summary.results):,}資料一致｜{elapsed:.1f}秒"
         else:
-            status = f"完了: {len(summary.results):,}資料 / {summary.total_hits:,}件一致 / {elapsed:.1f}秒"
+            partial = bool(summary.coverage.errors or summary.coverage.skipped_online
+                           or summary.coverage.skipped_size or summary.coverage.warnings)
+            label = "検索終了（一部未確認あり）" if partial else "検索完了"
+            status = f"{label}｜{summary.coverage.discovered:,}件発見｜{len(summary.results):,}資料一致｜{elapsed:.1f}秒"
         self._rebuild_facets()
         self._render_results()
         record_history(self.settings, self.state, len(summary.results), elapsed)
         self.settings.save()
-        if self.settings.autosave_results and summary.results:
-            path = self._autosave(summary)
-            if path:
-                # Only the file name: the full session path used to push the
-                # status bar past the window edge on smaller screens.
-                status += f" / 自動保存: {os.path.basename(path)}"
         self._status_text.set(status)
+        if self.settings.autosave_results and summary.results:
+            generation = self._search_generation
+            self._progress_text.set(summary.coverage.summary_line(f"{status}｜結果保存中"))
+            self._autosave_thread = threading.Thread(
+                target=self._autosave_worker,
+                args=(generation, summary),
+                daemon=True,
+                name="filescope-autosave",
+            )
+            self._autosave_thread.start()
+        else:
+            self._progress_text.set(summary.coverage.summary_line(status))
         self._update_index_label()
+
+    def _autosave_worker(self, generation: int, summary) -> None:
+        """Write the final CSV away from Tk, then hand back a small status event."""
+        try:
+            path = self._autosave(summary)
+            self._autosave_result_queue.put((generation, path, ""))
+        except Exception as exc:  # keep a failed optional save from losing search completion
+            log.warning("result autosave failed: %s", type(exc).__name__)
+            self._autosave_result_queue.put((generation, "", type(exc).__name__))
+
+    def _drain_autosave_results(self) -> None:
+        while True:
+            try:
+                generation, path, error = self._autosave_result_queue.get_nowait()
+            except queue.Empty:
+                return
+            if generation != self._search_generation:
+                continue
+            status = self._status_text.get()
+            if path:
+                status += f" / 自動保存: {os.path.basename(path)}"
+            else:
+                status += f" / 自動保存に失敗{f'（{error}）' if error else ''}"
+            self._status_text.set(status)
+            if self.session is not None and self.session.summary is not None:
+                self._progress_text.set(self.session.summary.coverage.summary_line(status))
 
     # ----------------------------------------------------------- progress
     def _start_progress(self) -> None:
@@ -698,16 +776,16 @@ class MainWindow(ttk.Frame):
 
     def _fill_window(self, start: int) -> None:
         total = len(self.model.visible)
-        start = max(0, min(start, max(0, total - results_module.WINDOW_ROWS)))
+        capacity = self._visible_row_capacity()
+        self._rendered_capacity = capacity
+        start, window_end = results_module.visible_window(total, start, capacity)
         self._window_start = start
-        # Rebuilding the list drops the Treeview selection in the middle of a
-        # search; put it back on the file the preview is showing so the pane and
-        # the list stay in step.
-        anchor = self.preview.current_path
+        selected = self._selected_result()
+        anchor = selected.path if selected is not None else self.preview.current_path
         restore = ""
         for item in self.tree.get_children():
             self.tree.delete(item)
-        for index, row in self.model.window(start, start + results_module.WINDOW_ROWS):
+        for index, row in self.model.window(start, window_end):
             self.tree.insert(
                 "",
                 "end",
@@ -719,10 +797,63 @@ class MainWindow(ttk.Frame):
                 restore = str(index)
         if restore:
             self.tree.selection_set(restore)
-        if total:
-            first = start / total
-            last = min(1.0, (start + min(total, results_module.WINDOW_ROWS)) / total)
-            self.scrollbar.set(first, last)
+        self.scrollbar.set(*results_module.scrollbar_fractions(total, start, capacity))
+
+    def _visible_row_capacity(self) -> int:
+        """Estimate rows that fit in the current widget, rather than its cache window."""
+        height = self.tree.winfo_height()
+        if height <= 1:
+            return max(1, int(self.tree.cget("height")))
+        row_height = 0
+        first_row_y = 0
+        children = self.tree.get_children("")
+        if children:
+            box = self.tree.bbox(children[0])
+            if box:
+                first_row_y = box[1]
+                row_height = box[3]
+        if row_height <= 0:
+            try:
+                import tkinter.font as tkfont
+                row_height = tkfont.nametofont("TkDefaultFont").metrics("linespace") + 6
+            except tk.TclError:
+                row_height = 20
+        # Treeview height includes the column-heading band. Subtract its real
+        # offset when rows exist; before first render, approximate one row.
+        heading_height = first_row_y or row_height
+        available = max(1, height - heading_height)
+        return max(1, min(results_module.WINDOW_ROWS, available // max(1, row_height)))
+
+    def _on_tree_configure(self, _event=None) -> None:
+        if self.model.visible and self._visible_row_capacity() != self._rendered_capacity:
+            self.after_idle(lambda: self._fill_window(self._window_start))
+
+    def _scroll_pages(self, direction: int) -> str:
+        self._fill_window(self._window_start + direction * self._visible_row_capacity())
+        return "break"
+
+    def _scroll_to_edge(self, end: bool) -> str:
+        target = max(0, len(self.model.visible) - self._visible_row_capacity()) if end else 0
+        self._fill_window(target)
+        return "break"
+
+    def _move_selection(self, direction: int) -> str:
+        total = len(self.model.visible)
+        if not total:
+            return "break"
+        selected = self._selected_result()
+        current = next((i for i, row in enumerate(self.model.visible)
+                        if selected is not None and row.result is selected), self._window_start)
+        target = max(0, min(total - 1, current + direction))
+        if target < self._window_start or target >= self._window_start + self._visible_row_capacity():
+            self._fill_window(target)
+        iid = str(target)
+        if iid in self.tree.get_children(""):
+            self.tree.selection_set(iid)
+            self.tree.focus(iid)
+            self.tree.see(iid)
+            self._on_select()
+        return "break"
 
     def _on_scroll(self, *args) -> None:
         total = max(1, len(self.model.visible))
@@ -731,22 +862,24 @@ class MainWindow(ttk.Frame):
             self._fill_window(start)
         elif args[0] == "scroll":
             amount, what = int(args[1]), args[2]
-            step = results_module.WINDOW_ROWS // 2 if what == "pages" else 3
+            step = self._visible_row_capacity() if what == "pages" else 3
             self._fill_window(self._window_start + amount * step)
 
     def _on_tree_scroll(self, first: str, last: str) -> None:
         # Keep the scrollbar tied to the model, not to the visible window.
-        total = max(1, len(self.model.visible))
-        span = min(1.0, results_module.WINDOW_ROWS / total)
-        position = self._window_start / total
-        self.scrollbar.set(position, min(1.0, position + span))
+        total = len(self.model.visible)
+        self.scrollbar.set(*results_module.scrollbar_fractions(
+            total, self._window_start, self._visible_row_capacity()
+        ))
 
     def _on_wheel(self, event) -> None:
         total = len(self.model.visible)
-        if total <= results_module.WINDOW_ROWS:
+        if total <= self._visible_row_capacity():
             return
-        delta = -3 if event.delta > 0 else 3
+        units = max(1, abs(int(event.delta)) // 120)
+        delta = -3 * units if event.delta > 0 else 3 * units
         self._fill_window(self._window_start + delta)
+        return "break"
 
     def _refresh_row(self, index: int) -> None:
         row = self.model.row_at(index)
@@ -934,7 +1067,7 @@ class MainWindow(ttk.Frame):
 
     # ------------------------------------------------------------- facets
     def _rebuild_facets(self) -> None:
-        for child in self.facet_inner.winfo_children():
+        for child in self.source_facet_frame.winfo_children():
             child.destroy()
         counts_kind: dict[str, int] = {}
         counts_source: dict[str, int] = {}
@@ -946,29 +1079,29 @@ class MainWindow(ttk.Frame):
             counts_source[result.source_type.value] = counts_source.get(result.source_type.value, 0) + 1
             if result.ocr_pages:
                 ocr_count += 1
-        for kind, count in sorted(counts_kind.items(), key=lambda item: -item[1]):
-            label = f"{kind} {count}"
-            ttk.Button(
-                self.facet_inner,
-                text=label,
-                width=len(label) + 2,
-                command=lambda value=kind: self._toggle_facet("kind", value),
-            ).pack(side="left", padx=2)
+        selected_kinds = self.state.facet_kinds
+        for kind, var in self._kind_filter_vars.items():
+            var.set(kind in selected_kinds)
+        if self._kind_filter_button is not None:
+            active = len(selected_kinds)
+            self._kind_filter_button.configure(text=f"種類: {active}件選択" if active else "種類: すべて")
+        for index, kind in enumerate(self._kind_filter_options):
+            label = self._kind_filter_labels.get(kind, kind)
+            self._kind_filter_menu.entryconfigure(index, label=f"{label} ({counts_kind.get(kind, 0):,})")
         for source, count in sorted(counts_source.items(), key=lambda item: -item[1]):
             label = f"{SOURCE_LABELS.get(SourceType(source), source)} {count}"
             ttk.Button(
-                self.facet_inner,
+                self.source_facet_frame,
                 text=label,
                 width=len(label) + 2,
                 command=lambda value=source: self._toggle_facet("source", value),
             ).pack(side="left", padx=2)
         if ocr_count:
             ttk.Button(
-                self.facet_inner,
+                self.source_facet_frame,
                 text=f"OCRのみ {ocr_count}",
                 command=self._toggle_ocr_facet,
             ).pack(side="left", padx=2)
-        ttk.Button(self.facet_inner, text="解除", command=self.clear_facets).pack(side="left", padx=6)
 
     def _toggle_facet(self, group: str, value: str) -> None:
         target = self.state.facet_kinds if group == "kind" else self.state.facet_sources
@@ -976,6 +1109,10 @@ class MainWindow(ttk.Frame):
             target.discard(value)
         else:
             target.add(value)
+        if group == "kind" and self._kind_filter_button is not None:
+            active = len(self.state.facet_kinds)
+            self._kind_filter_button.configure(text=f"種類: {active}件選択" if active else "種類: すべて")
+            self._kind_filter_vars[value].set(value in self.state.facet_kinds)
         self._sync_state()
         self._render_results()
 
@@ -989,6 +1126,10 @@ class MainWindow(ttk.Frame):
         self.state.facet_ocr = False
         self.state.confirmed_only = False
         self.state.unconfirmed_only = False
+        for var in self._kind_filter_vars.values():
+            var.set(False)
+        if self._kind_filter_button is not None:
+            self._kind_filter_button.configure(text="種類: すべて")
         self._render_results()
 
     def apply_refine(self) -> None:
@@ -1345,6 +1486,8 @@ class MainWindow(ttk.Frame):
             # destroy() prints Tcl "invalid command name" noise.
             with suppress(tk.TclError):
                 self.after_cancel(self._drain_job)
+            if self._autosave_thread is not None and self._autosave_thread.is_alive():
+                self._autosave_thread.join(timeout=3)
             self.preview.stop()
             if self.session is not None and not self.session.finished:
                 self.session.cancel()
