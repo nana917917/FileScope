@@ -37,6 +37,7 @@ def main():
     drains = []
     if args.ui == "qt":
         from PySide6.QtCore import QTimer
+
         from filescope.ui.qt_window import Window, create_application
 
         imported = time.perf_counter()

@@ -125,3 +125,47 @@ def test_pdf_page_render_is_on_demand(qt_app, tmp_path):
     png, page_number, count = pdf_preview(result, config, 1)
     assert png.startswith(b"\x89PNG")
     assert page_number == count == 1
+
+
+
+def test_qt_pause_cancel_and_settings(qt_app, tmp_path, monkeypatch):
+    from filescope.core import coordinator
+    from filescope.ui.qt_window import Window
+
+    data = tmp_path / "data"
+    monkeypatch.setenv("LOCALAPPDATA", str(data))
+    corpus = tmp_path / "docs"
+    corpus.mkdir()
+    for i in range(20):
+        (corpus / f"{i}.txt").write_text("sample\n", encoding="utf-8")
+    original = coordinator.extract
+
+    def slow(entry, path, sink, options):
+        for _ in range(25):
+            sink.check()
+            time.sleep(0.01)
+        return original(entry, path, sink, options)
+
+    monkeypatch.setattr(coordinator, "extract", slow)
+    settings = Settings()
+    settings.index_enabled = False
+    settings.defaults.pdf_ocr_mode = "off"
+    settings.defaults.root = str(corpus)
+    settings.defaults.query = "sample"
+    settings.window["column_name"] = 321
+    window = Window(settings)
+    window.show()
+    assert window.table.columnWidth(1) == 321
+    window.start_search()
+    pump(qt_app, lambda: window.session is not None)
+    window._pause()
+    assert window.session.paused and window.status.text() == "一時停止中"
+    window._cancel()
+    pump(qt_app, lambda: window.summary is not None)
+    assert window.summary.coverage.cancelled
+    assert "検索中断" in window.status.text()
+    window._theme("dark")
+    window.close()
+    restored = Settings.load()
+    assert restored.theme == "dark" and restored.defaults.query == "sample"
+    assert restored.window["qt_header"]
