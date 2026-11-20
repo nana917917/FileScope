@@ -34,14 +34,13 @@ def main():
     settings.autosave_results = False
     settings.defaults.pdf_ocr_mode = "off"
     corpus = str(Path(args.corpus).resolve())
+    drains = []
     if args.ui == "qt":
         from PySide6.QtCore import QTimer
-        from PySide6.QtWidgets import QApplication
-
-        from filescope.ui.qt_window import Window
+        from filescope.ui.qt_window import Window, create_application
 
         imported = time.perf_counter()
-        app = QApplication([])
+        app = create_application()
         window = Window(settings)
         window.show()
         app.processEvents()
@@ -62,6 +61,14 @@ def main():
             window.close()
 
         update = app.processEvents
+        window.timer.timeout.disconnect(window._drain)
+
+        def timed_drain():
+            start = time.perf_counter()
+            window._drain()
+            drains.append((time.perf_counter() - start) * 1000)
+
+        window.timer.timeout.connect(timed_drain)
     else:
         import tkinter as tk
 
@@ -127,6 +134,7 @@ def main():
         "search_cpu_seconds": cpu, "working_set_mib": ProcessMemory.peak_bytes()/2**20,
         "tick_p95_ms": sorted(ticks)[int(0.95*(len(ticks)-1))]*1000,
         "tick_max_ms": max(ticks)*1000, "seek_median_ms": statistics.median(seek_ms),
+        "drain_max_ms": max(drains, default=0),
     }
     close()
     print(json.dumps(report))

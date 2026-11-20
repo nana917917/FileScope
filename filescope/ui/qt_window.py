@@ -81,6 +81,8 @@ class Window(QMainWindow):
         self.pdf_cache = OrderedDict()
         self.current = None
         self.keys = set()
+        self.pending_rows = []
+        self.last_publish = 0.0
         self.kind_counts = Counter()
         self.confirmed = settings.confirmed_set()
         self.database = self.ocr_cache = None
@@ -531,6 +533,8 @@ class Window(QMainWindow):
         self.keys.clear()
         self.kind_counts.clear()
         self.model.clear()
+        self.pending_rows.clear()
+        self.last_publish = time.perf_counter() - 1
         self.issues.clear()
         self.issues_toggle.setText("問題・未確認 0件")
         self._update_count()
@@ -621,8 +625,13 @@ class Window(QMainWindow):
             elif isinstance(event, (events.Finished, events.QueryFailed)):
                 terminal = event
                 break
-        self.model.extend(batch)
-        if batch:
+        self.pending_rows.extend(batch)
+        finished = terminal is not None or (self.session.finished and self.session.events.empty())
+        now = time.perf_counter()
+        if self.pending_rows and (finished or now - self.last_publish >= 0.20):
+            self.model.extend(self.pending_rows)
+            self.pending_rows.clear()
+            self.last_publish = now
             self._update_count()
         if progress and not self.cancelled and not self.session.paused:
             self.status.setText(progress.line())
@@ -1033,8 +1042,16 @@ class Window(QMainWindow):
             self.database.close()
 
 
+def create_application():
+    # On the measured Windows machine, the Qt DirectWrite backend increased
+    # peak working set substantially. Keep the deployment override available.
+    if os.name == "nt":
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows:fontengine=gdi")
+    return QApplication([])
+
+
 def run(settings, *, report="", smoke_root=""):
-    app = QApplication([])
+    app = create_application()
     if smoke_root:
         settings.autosave_results = False
         settings.index_enabled = False

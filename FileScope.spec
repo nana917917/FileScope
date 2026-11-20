@@ -38,6 +38,10 @@ analysis = Analysis(
     excludes=["pytest", "ruff", "xlwt"],
     cipher=block_cipher,
 )
+# The preview uses raster Qt Widgets and PDFium. No OpenGL contexts are created.
+analysis.binaries = [
+    item for item in analysis.binaries if Path(item[0]).name.lower() != "opengl32sw.dll"
+]
 pyz = PYZ(analysis.pure)
 
 exe = EXE(
