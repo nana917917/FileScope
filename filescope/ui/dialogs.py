@@ -114,7 +114,8 @@ class ConditionBuilderDialog(Dialog):
         self.count_var = tk.StringVar(value=str(groups.n_of_count or 2))
         ttk.Spinbox(count_row, from_=1, to=20, width=3, textvariable=self.count_var).pack(side="left", padx=4)
         ttk.Label(count_row, text="個以上").pack(side="left")
-        ttk.Label(n_frame, text="例: 3つ中2つ以上あればヒット", foreground="#666").pack(anchor="w")
+        self.threshold_var = tk.StringVar(value="例：3つのうち2つ以上")
+        ttk.Label(n_frame, textvariable=self.threshold_var, foreground="#666").pack(anchor="w")
         self.n_of = tk.Text(n_frame, height=3, width=24, wrap="word")
         self.n_of.pack(fill="x", pady=(4, 0))
 
@@ -153,6 +154,7 @@ class ConditionBuilderDialog(Dialog):
         ttk.Button(buttons, text="キャンセル", command=self._cancel).pack(side="right")
 
         self._apply_groups(groups)
+        self.count_var.trace_add("write", lambda *_: self._preview())
         self._preview()
         for widget in (self.all_of, self.any_of, self.none_of, self.n_of):
             widget.bind("<KeyRelease>", lambda _event: self._preview())
@@ -400,6 +402,15 @@ class ConditionBuilderDialog(Dialog):
         return to_query_string(node), ""
 
     def _preview(self) -> str:
+        candidates = len(self._lines(self.n_of))
+        label = "例：3つのうち2つ以上"
+        if candidates:
+            try:
+                minimum = min(candidates, max(1, int(self.count_var.get() or 1)))
+                label = f"{candidates}つのうち{minimum}つ以上を含む"
+            except ValueError:
+                label = "必要な一致数を数字で入力"
+        self.threshold_var.set(label)
         query, error = self._build_query()
         self.error_var.set(error)
         self.preview_var.set(error or query or "（条件が未入力です）")

@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--light", action="store_true")
     parser.add_argument("--cancel-ms", type=int)
     parser.add_argument("--static-proxy", action="store_true")
+    parser.add_argument("--interact", action="store_true")
     args = parser.parse_args()
     sys.path.insert(0, str(Path(args.source).resolve()))
     profile = Path(args.profile).resolve()
@@ -93,6 +94,20 @@ def main():
         def finish():
             return window.summary
         close = window.close
+
+        def select():
+            count = window.proxy.rowCount()
+            if count == 0:
+                return None
+            index = window.proxy.index(count // 2, 1)
+            before = time.perf_counter()
+            window.table.scrollTo(index)
+            scrolled = time.perf_counter()
+            window.table.setCurrentIndex(index)
+            return (scrolled - before, time.perf_counter() - scrolled)
+
+        def preview_ready():
+            return bool(window.preview_cache)
     else:
         import tkinter as tk
 
@@ -119,6 +134,22 @@ def main():
         def finish():
             return window.session.summary if window.session and window.session.events.empty() else None
         close = window.on_close
+
+        def select():
+            if not window.model.visible:
+                return None
+            before = time.perf_counter()
+            window._on_scroll("moveto", "0.5")
+            scrolled = time.perf_counter()
+            children = window.tree.get_children()
+            if not children:
+                return None
+            window.tree.selection_set(children[0])
+            window._on_select()
+            return (scrolled - before, time.perf_counter() - scrolled)
+
+        def preview_ready():
+            return bool(window.preview._cache)
     ticks = []
     outcome = {}
 
@@ -129,6 +160,9 @@ def main():
         window.start_search()
         callback = time.perf_counter() - now
         cancelled_at = []
+        selection = None
+        selected_at = None
+        preview_ms = None
 
         def cancel():
             cancelled_at.append(time.perf_counter())
@@ -141,11 +175,17 @@ def main():
             schedule(args.cancel_ms, cancel)
 
         def sample():
-            nonlocal previous
+            nonlocal previous, selection, selected_at, preview_ms
             current = time.perf_counter()
             ticks.append((current - previous) * 1000)
             previous = current
             summary = finish()
+            if args.interact and selection is None:
+                selection = select()
+                if selection:
+                    selected_at = time.perf_counter()
+            if selected_at is not None and preview_ms is None and preview_ready():
+                preview_ms = (time.perf_counter() - selected_at) * 1000
             if summary is None and current - now < 90:
                 schedule(40, sample)
                 return
@@ -164,6 +204,8 @@ def main():
                     maximum=max(ticks),
                     cancelled=summary.coverage.cancelled,
                     cancel_ms=(current-cancelled_at[0])*1000 if cancelled_at else None,
+                    interaction_ms=[value*1000 for value in selection] if selection else None,
+                    preview_ms=preview_ms,
                 )
             close()
 
