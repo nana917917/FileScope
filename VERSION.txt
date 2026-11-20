@@ -1,6 +1,6 @@
-FileScope 5.1.1
+FileScope 5.2.0 Qt preview
 Build: pyinstaller onedir (win64)
-Source: v5.1.1 (codex/v5.1.1-ui-polish integrated into main)
+Source: codex/qt-desktop-preview, based on e24d9a4
 
 Contents
   FileScope.exe        program (no Python installation required)

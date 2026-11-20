@@ -5,10 +5,13 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ..config import Settings
-from ..core.coordinator import SearchConfig
 from ..core.paths import normalized_key
+
+if TYPE_CHECKING:
+    from ..core.coordinator import SearchConfig
 
 
 @dataclass
@@ -104,6 +107,8 @@ class UiState:
 
     # --------------------------------------------------------------- search
     def to_config(self, settings: Settings) -> SearchConfig:
+        from ..core.coordinator import SearchConfig
+
         roots = self.roots()
         return SearchConfig(
             roots=roots,

@@ -47,6 +47,14 @@ def main(argv: list[str] | None = None) -> int:
         return selftest_main(argv)
     if args.search:
         return run_headless_search(args)
+    if not args.classic_ui:
+        try:
+            from .ui.qt_window import run
+        except ModuleNotFoundError as exc:
+            if exc.name != "PySide6" or args.gui_ready:
+                raise
+        else:
+            return run(settings, report=args.gui_ready, quit_after_ms=300 if args.gui_ready else 0)
     return run_gui(settings)
 
 
@@ -68,6 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", help="also write the JSON/report to this file")
     parser.add_argument("--limit", type=int, default=0, help="limit printed results")
     parser.add_argument("--log-level", default="", help="DEBUG / INFO / WARNING")
+    parser.add_argument("--classic-ui", action="store_true", help="start the previous Tk interface")
+    parser.add_argument("--gui-ready", default="", help=argparse.SUPPRESS)
     return parser
 
 

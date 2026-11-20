@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - codex/search-ui-responsiveness
+      - codex/qt-desktop-preview
     paths:
       - '.github/workflows/portable-candidate.yml'
       - 'FileScope.spec'
@@ -24,8 +25,6 @@ jobs:
     steps:
       - name: Check out candidate branch
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,7 +34,7 @@ jobs:
       - name: Build portable ZIP
         shell: pwsh
         run: |
-          ./scripts/build_release_zip.ps1 -Version "5.1.1-actions-${{ github.run_number }}" -OutputDirectory dist -Label win64
+          ./scripts/build_release_zip.ps1 -Version "5.2.0-qt-preview-${{ github.run_number }}" -OutputDirectory dist -Label win64
 
       - name: Verify diagnostics, search equivalence, and GUI startup
         shell: pwsh
@@ -77,12 +76,25 @@ jobs:
           if ($frozenPaths -ne $sourcePaths) { throw "Frozen/source result mismatch: $frozenPaths <> $sourcePaths" }
           Write-Host "PASS diagnostics, headless search, source equivalence ($frozenPaths)"
 
-          $gui = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 6
-          $gui.Refresh()
-          if ($gui.HasExited) { throw 'Frozen GUI exited during startup check' }
-          $gui.Kill()
-          Write-Host 'PASS GUI process remained alive for 6 seconds'
+          $ready = Join-Path $work 'qt-ready.txt'
+          $gui = Start-Process -FilePath $exe -ArgumentList @('--gui-ready', $ready) -PassThru -WindowStyle Hidden
+          if (-not $gui.WaitForExit(30000)) {
+            $gui.Kill()
+            throw 'Frozen Qt window did not close'
+          }
+          if ($gui.ExitCode -ne 0 -or -not (Test-Path $ready)) { throw 'Frozen Qt startup failed' }
+          Write-Host 'PASS Qt window ready and exited normally'
+
+      - name: Verify Qt search and result interactions
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          .venv/Scripts/python.exe -m pip install pytest
+          if ($LASTEXITCODE -ne 0) { throw 'pytest install failed' }
+          .venv/Scripts/python.exe -m pytest -q tests/test_qt_desktop.py
+          if ($LASTEXITCODE -ne 0) { throw 'Qt regression test failed' }
 
       - name: Write SHA-256 manifest
         shell: pwsh

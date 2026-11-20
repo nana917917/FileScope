@@ -7,6 +7,8 @@ immediately, OCR timeout.
 
 from __future__ import annotations
 
+from threading import Lock
+
 from ..core.models import Chunk, ChunkKind, FileEntry
 from ..core.paths import normalized_key
 from ..errors import Issue, Severity
@@ -15,6 +17,7 @@ from .base import ExtractContext, ExtractOptions, ExtractResult, Sink
 NATIVE_TEXT_MIN_CHARS = 40        # v4 threshold for "this page is a scan"
 MAX_PAGE_OCR_SECONDS = 30
 RENDER_SCALE = 2.0
+pdfium_lock = Lock()
 
 
 class PdfExtractor:
@@ -180,6 +183,11 @@ class PdfExtractor:
 
 
 def render_page(path: str, index: int, scale: float):
+    with pdfium_lock:
+        return _render_page(path, index, scale)
+
+
+def _render_page(path: str, index: int, scale: float):
     """Render one PDF page to a PIL image (pypdfium2, freed by the caller)."""
     import pypdfium2 as pdfium
 

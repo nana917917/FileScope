@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__version__ = "5.1.1"
+__version__ = "5.2.0-qt-preview"
 
 # Bumped whenever extraction output changes shape or content. Index rows carry
 # the version they were written with so a change can invalidate just the
