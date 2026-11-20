@@ -25,6 +25,7 @@ from ..logging_setup import get_logger
 log = get_logger("preview")
 
 MAX_PREVIEW_CHARS = 40_000
+MAX_PREVIEW_HIGHLIGHTS = 1_000
 CACHE_LIMIT = 8
 MAX_PIXELS = 12_000_000          # one page stays well under ~48MB
 PAGE_CACHE_LIMIT = 3
@@ -441,6 +442,9 @@ class PreviewPane(ttk.Frame):
             if location and location != last_location:
                 self.text.insert("end", f"{location}\n", ("location",))
                 last_location = location
+            if len(self._match_indexes) >= MAX_PREVIEW_HIGHLIGHTS:
+                self.text.insert("end", line + "\n")
+                continue
             start_index = self.text.index("end-1c")
             self.text.insert("end", line + "\n")
             end_index = self.text.index("end-1c")
@@ -448,6 +452,10 @@ class PreviewPane(ttk.Frame):
                 if not term:
                     continue
                 _highlight(self.text, start_index, end_index, term, self._match_indexes)
+                if len(self._match_indexes) >= MAX_PREVIEW_HIGHLIGHTS:
+                    break
+        if len(self._match_indexes) >= MAX_PREVIEW_HIGHLIGHTS:
+            self.text.insert("end", "一致箇所の強調は先頭1,000件まで表示します。\n", ("note",))
         if content.note:
             self.text.insert("end", content.note + "\n", ("note",))
         self.text.configure(state="disabled")
@@ -513,7 +521,7 @@ def _size(value: int) -> str:
 def _highlight(text: tk.Text, start: str, end: str, term: str, found: list[str]) -> None:
     """Highlight every occurrence of ``term`` between two indexes."""
     position = start
-    while True:
+    while len(found) < MAX_PREVIEW_HIGHLIGHTS:
         position = text.search(term, position, stopindex=end, nocase=True)
         if not position:
             break
