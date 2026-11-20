@@ -21,6 +21,8 @@ def main():
     parser.add_argument("--sort", action="store_true")
     parser.add_argument("--trace", action="store_true")
     parser.add_argument("--index", action="store_true")
+    parser.add_argument("--light", action="store_true")
+    parser.add_argument("--cancel-ms", type=int)
     args = parser.parse_args()
     sys.path.insert(0, str(Path(args.source).resolve()))
     profile = Path(args.profile).resolve()
@@ -97,6 +99,10 @@ def main():
         imported = time.perf_counter()
         purge_stale()
         root = tk.Tk()
+        if args.light:
+            from filescope.ui.tk_light import apply_light
+
+            apply_light(root)
         runtime = time.perf_counter()
         root.geometry("1260x790")
         window = MainWindow(root, settings=settings)
@@ -119,6 +125,17 @@ def main():
         previous = now
         window.start_search()
         callback = time.perf_counter() - now
+        cancelled_at = []
+
+        def cancel():
+            cancelled_at.append(time.perf_counter())
+            if args.ui == "qt":
+                window._cancel()
+            else:
+                window.cancel_search()
+
+        if args.cancel_ms is not None:
+            schedule(args.cancel_ms, cancel)
 
         def sample():
             nonlocal previous
@@ -142,6 +159,8 @@ def main():
                     peak_mib=ProcessMemory.peak_bytes()/2**20,
                     p50=statistics.median(ticks), p95=sorted(ticks)[int(.95*(len(ticks)-1))],
                     maximum=max(ticks),
+                    cancelled=summary.coverage.cancelled,
+                    cancel_ms=(current-cancelled_at[0])*1000 if cancelled_at else None,
                 )
             close()
 

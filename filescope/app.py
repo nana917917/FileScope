@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise
         else:
             return run(settings, report=args.gui_ready, smoke_root=args.gui_smoke_root)
-    return run_gui(settings)
+    return run_gui(settings, report=args.tk_ready)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,13 +82,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qt-ui", action="store_true", help="start the comparison Qt interface")
     parser.add_argument("--gui-ready", default="", help=argparse.SUPPRESS)
     parser.add_argument("--gui-smoke-root", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--tk-ready", default="", help=argparse.SUPPRESS)
     return parser
 
 
 # ------------------------------------------------------------------ GUI mode
 
 
-def run_gui(settings: Settings) -> int:
+def run_gui(settings: Settings, *, report="") -> int:
     started = time.perf_counter()
     import tkinter as tk
 
@@ -129,6 +130,13 @@ def run_gui(settings: Settings) -> int:
         log.info("startup ready: first_ui_idle=%.3fs", time.perf_counter() - started)
 
     root.after_idle(log_first_idle)
+    if report:
+        def report_and_close():
+            with open(report, "w", encoding="utf-8") as handle:
+                handle.write("Tk window ready\n")
+            window.on_close()
+
+        root.after(100, report_and_close)
 
     def on_configure(event) -> None:
         if event.widget is root:

@@ -35,7 +35,7 @@ jobs:
       - name: Build portable ZIP
         shell: pwsh
         run: |
-          ./scripts/build_release_zip.ps1 -Version "5.2.0-qt-preview-${{ github.run_number }}" -OutputDirectory dist -Label win64
+          ./scripts/build_release_zip.ps1 -Version "5.2.0-ui-review-${{ github.run_number }}" -OutputDirectory dist -Label win64
 
       - name: Verify diagnostics, search equivalence, and GUI startup
         shell: pwsh
@@ -91,6 +91,15 @@ jobs:
             throw 'Frozen Qt startup, search or preview failed'
           }
           Write-Host 'PASS Qt window search, preview and normal exit'
+          $tkReady = Join-Path $work 'tk-ready.txt'
+          $tk = Start-Process -FilePath $exe -ArgumentList @('--tk-ready', $tkReady) -PassThru -WindowStyle Hidden
+          if (-not $tk.WaitForExit(30000)) {
+            $tk.Kill()
+            throw 'Frozen Tk window did not close'
+          }
+          if ($tk.ExitCode -ne 0 -or -not (Test-Path $tkReady) -or (Get-Content $tkReady) -ne 'Tk window ready') {
+            throw 'Frozen Tk startup failed'
+          }
 
       - name: Verify Qt search and result interactions
         shell: pwsh
