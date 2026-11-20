@@ -246,6 +246,10 @@ class MainWindow(ttk.Frame):
             "unknown": tk.BooleanVar(value=self.state.include_unknown_text),
         }
         ttk.Label(exact, text="検索対象", font=self.body_bold).pack(side="left", padx=(0, 4))
+        target = ttk.Menubutton(exact, text="対象形式")
+        target_menu = tk.Menu(target, tearoff=False)
+        target.configure(menu=target_menu)
+        target.pack(side="left", padx=4)
         for key, label in (
             ("excel", "Excel"),
             ("pdf", "PDF"),
@@ -254,14 +258,18 @@ class MainWindow(ttk.Frame):
             ("text", "Text（CSV含む）"),
             ("unknown", "未知形式"),
         ):
-            ttk.Checkbutton(exact, text=label, variable=self.kind_vars[key]).pack(side="left", padx=2)
+            target_menu.add_checkbutton(label=label, variable=self.kind_vars[key])
         # The dialogs stay on this row but are pushed to the right edge, so the
         # frequently used 条件… never hides behind them.
         ttk.Separator(exact, orient="vertical").pack(side="left", fill="y", padx=10, pady=2)
         ttk.Button(exact, text="条件…", width=7, command=self.open_condition_builder).pack(side="left", padx=4)
         ttk.Button(exact, text="詳細設定…", width=10, command=self.open_settings).pack(side="left", padx=4)
-        ttk.Button(exact, text="索引…", width=7, command=self.open_index_status).pack(side="left", padx=4)
-        ttk.Button(exact, text="診断…", width=7, command=self.open_diagnostics).pack(side="left", padx=4)
+        maintenance = ttk.Menubutton(exact, text="メンテナンス")
+        menu = tk.Menu(maintenance, tearoff=False)
+        menu.add_command(label="索引…", command=self.open_index_status)
+        menu.add_command(label="診断…", command=self.open_diagnostics)
+        maintenance.configure(menu=menu)
+        maintenance.pack(side="left", padx=4)
 
         actions = ttk.Frame(self, padding=(8, 0, 8, 2))
         actions.pack(fill="x")
@@ -363,9 +371,13 @@ class MainWindow(ttk.Frame):
         self.tree = ttk.Treeview(
             tree_area,
             columns=tuple(key for key, _l, _w in results_module.COLUMNS),
-            show="headings",
+            show="tree headings",
             selectmode="browse",
         )
+        self.tree.column("#0", width=25, minwidth=25, stretch=False)
+        from .tk_light import document_icons
+
+        self.document_icons = document_icons(self.tree)
         for key, label, width in results_module.COLUMNS:
             self.tree.heading(key, text=label, command=lambda column=key: self.sort_by(column))
             saved_width = _bounded_layout_value(self.settings, f"column_{key}", width, 24, 2000)
@@ -790,6 +802,7 @@ class MainWindow(ttk.Frame):
                 "",
                 "end",
                 iid=str(index),
+                image=self.document_icons.get(display_kind(row.result), self.document_icons["?"]),
                 values=results_module.values_for(row, self.ocr_status.ready),
                 tags=results_module.row_tags(row, index),
             )

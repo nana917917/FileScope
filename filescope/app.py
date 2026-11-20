@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         return selftest_main(argv)
     if args.search:
         return run_headless_search(args)
-    if not args.classic_ui:
+    if not args.classic_ui and (args.qt_ui or args.gui_ready):
         try:
             from .ui.qt_window import run
         except ModuleNotFoundError as exc:
@@ -79,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=0, help="limit printed results")
     parser.add_argument("--log-level", default="", help="DEBUG / INFO / WARNING")
     parser.add_argument("--classic-ui", action="store_true", help="start the previous Tk interface")
+    parser.add_argument("--qt-ui", action="store_true", help="start the comparison Qt interface")
     parser.add_argument("--gui-ready", default="", help=argparse.SUPPRESS)
     parser.add_argument("--gui-smoke-root", default="", help=argparse.SUPPRESS)
     return parser
@@ -110,6 +111,10 @@ def run_gui(settings: Settings) -> int:
     log.info("starting FileScope %s (OCR: %s)", __version__, ocr_status.message or "unknown")
 
     root = tk.Tk()
+    from .ui.tk_light import apply_light
+
+    if settings.theme != "dark":
+        apply_light(root)
     root.title(f"FileScope {__version__}")
     root.geometry(settings.window.get("geometry", "1280x820"))
     root.minsize(900, 600)

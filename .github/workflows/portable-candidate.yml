@@ -6,6 +6,7 @@ on:
     branches:
       - codex/search-ui-responsiveness
       - codex/qt-desktop-preview
+      - codex/ui-performance-review
     paths:
       - '.github/workflows/portable-candidate.yml'
       - 'FileScope.spec'
