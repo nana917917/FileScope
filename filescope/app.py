@@ -11,7 +11,7 @@ import time
 import traceback
 from contextlib import suppress
 
-from . import diagnostics, paths
+from . import paths
 from .config import Settings
 from .logging_setup import get_logger, setup_logging
 from .version import __version__
@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     install_crash_handler()
 
     if args.diagnostics:
+        from . import diagnostics
+
         text = diagnostics.collect().as_text()
         print(text)
         if args.out:
@@ -54,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
             if exc.name != "PySide6" or args.gui_ready:
                 raise
         else:
-            return run(settings, report=args.gui_ready, quit_after_ms=300 if args.gui_ready else 0)
+            return run(settings, report=args.gui_ready, smoke_root=args.gui_smoke_root)
     return run_gui(settings)
 
 
@@ -78,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-level", default="", help="DEBUG / INFO / WARNING")
     parser.add_argument("--classic-ui", action="store_true", help="start the previous Tk interface")
     parser.add_argument("--gui-ready", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--gui-smoke-root", default="", help=argparse.SUPPRESS)
     return parser
 
 
@@ -281,6 +284,8 @@ def install_crash_handler() -> None:
 
 
 def write_crash_report(exc_type, exc_value, exc_tb) -> str:
+    from . import diagnostics
+
     try:
         directory = paths.crash_dir()
         path = os.path.join(directory, f"crash-{time.strftime('%Y%m%d-%H%M%S')}.txt")

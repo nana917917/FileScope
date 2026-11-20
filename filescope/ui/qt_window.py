@@ -9,6 +9,7 @@ import threading
 import time
 from collections import Counter, OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from copy import copy
 from datetime import datetime
 
 from PySide6.QtCore import QByteArray, Qt, QTimer
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QStackedWidget,
+    QStyle,
     QTableView,
     QToolButton,
     QTreeWidget,
@@ -41,7 +43,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.models import FileKind, SourceType
+from ..core.models import SOURCE_LABELS, FileKind, SourceType
+from ..core.paths import normalized_key
 from . import results
 from .qt_results import ResultTable, ResultView
 from .state import UiState, apply_preset, display_kind, preset_from_state, record_history
@@ -121,6 +124,8 @@ class Window(QMainWindow):
         form.setColumnStretch(1, 1)
         self.root_input = QComboBox(editable=True)
         self.root_input.setInsertPolicy(QComboBox.NoInsert)
+        self.root_input.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.root_input.setMinimumContentsLength(20)
         self.root_input.lineEdit().setPlaceholderText("複数のフォルダーは ; で区切る")
         self.root_input.setEditText(self.state.root)
         self.query = QLineEdit(self.state.query)
@@ -128,7 +133,9 @@ class Window(QMainWindow):
         self.query.returnPressed.connect(self.start_search)
         form.addWidget(QLabel("検索場所"), 0, 0)
         form.addWidget(self.root_input, 0, 1)
-        form.addWidget(self._button("参照…", self._browse), 0, 2)
+        browse = self._button("参照…", self._browse)
+        browse.setIcon(self.style().standardIcon(QStyle.SP_DirIcon))
+        form.addWidget(browse, 0, 2)
         form.addWidget(QLabel("検索文字"), 1, 0)
         form.addWidget(self.query, 1, 1)
         form.addWidget(self._button("条件を作る…", self._conditions), 1, 2)
@@ -140,6 +147,14 @@ class Window(QMainWindow):
         self.cancel_button = self._button("中断", self._cancel, controls)
         self._busy(False)
         self.refine_button = self._button("追加条件…", self._refine, controls)
+        self.targets_button, targets = self._menu_button("対象形式", controls)
+        self.target_actions = {}
+        for key, label in TYPES.items():
+            action = targets.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(getattr(self.state, key))
+            action.toggled.connect(lambda value, field=key: setattr(self.state, field, value))
+            self.target_actions[key] = action
         self._button("検索設定…", self._search_settings, controls)
         self._button("履歴・プリセット…", self._history, controls)
         controls.addStretch()
@@ -176,7 +191,7 @@ class Window(QMainWindow):
         _, more = self._menu_button("絞り込み", filters)
         self.source_actions = {}
         for source in SourceType:
-            action = more.addAction(source.value)
+            action = more.addAction(SOURCE_LABELS[source])
             action.setCheckable(True)
             action.toggled.connect(self._filters)
             self.source_actions[source.value] = action
@@ -408,6 +423,12 @@ class Window(QMainWindow):
         ocr_values = ("auto", "all", "off")
         ocr.setCurrentIndex(ocr_values.index(self.state.pdf_ocr_mode) if self.state.pdf_ocr_mode in ocr_values else 0)
         form.addRow("PDF OCR", ocr)
+        online = QComboBox()
+        policies = ("auto", "skip", "fetch")
+        online.addItems(["検索モードに従う", "未取得ファイルをスキップ", "取得して検索"])
+        online.setCurrentIndex(policies.index(self.state.online_files_policy)
+                               if self.state.online_files_policy in policies else 0)
+        form.addRow("OneDrive 未取得", online)
         languages = QLineEdit(self.state.ocr_languages)
         form.addRow("OCR言語", languages)
         excluded = QLineEdit(self.state.exclude_query)
@@ -429,11 +450,17 @@ class Window(QMainWindow):
                 setattr(self.state, key, check.isChecked())
             self.state.mode = modes[mode.currentIndex()]
             self.state.pdf_ocr_mode = ocr_values[ocr.currentIndex()]
+            self.state.online_files_policy = policies[online.currentIndex()]
             self.state.ocr_languages = languages.text()
             self.state.exclude_query = excluded.text()
             self.state.legacy_operator = operator.currentText()
             self.settings.autosave_results = autosave.isChecked()
             self.settings.index_enabled = index.isChecked()
+            self._sync_targets()
+
+    def _sync_targets(self):
+        for key, action in self.target_actions.items():
+            action.setChecked(bool(getattr(self.state, key)))
 
     def _refresh_history(self):
         current = self.root_input.currentText()
@@ -478,6 +505,7 @@ class Window(QMainWindow):
             self.state.refine_text = self.state.exclude_query = ""
         self.root_input.setEditText(self.state.root)
         self.query.setText(self.state.query)
+        self._sync_targets()
         self.refine_button.setText("追加条件あり…" if self.state.refine_text else "追加条件…")
 
 
@@ -509,12 +537,12 @@ class Window(QMainWindow):
         self._busy(True)
         self.pause_button.setDisabled(True)
         self.status.setText("検索準備中")
-        self.search_config = self.state.to_config(self.settings)
-        self.search_state = UiState(**vars(self.state))
+        self.search_config = None
+        self.search_state = copy(self.state)
         autosave = self.settings.autosave_results
-        self.search_pool.submit(self._prepare_search, self.search_config, autosave)
+        self.search_pool.submit(self._prepare_search, self.search_state, copy(self.settings), autosave)
 
-    def _prepare_search(self, config, autosave):
+    def _prepare_search(self, state, settings, autosave):
         try:
             from .. import paths
             from ..core.coordinator import SearchSession
@@ -523,6 +551,7 @@ class Window(QMainWindow):
             from ..platform import tesseract
             from ..platform.tempfiles import purge_stale
 
+            config = state.to_config(settings)
             if self.ocr_cache is None:
                 self.ocr_cache = OcrCache()
                 purge_stale()
@@ -577,8 +606,6 @@ class Window(QMainWindow):
                 break
             if isinstance(event, events.ResultAdded):
                 result = event.result
-                from ..core.paths import normalized_key
-
                 key = normalized_key(result.path)
                 if key not in self.keys:
                     self.keys.add(key)
@@ -652,6 +679,7 @@ class Window(QMainWindow):
         kind, *payload = task
         if kind == "started":
             self.session, self.autosave = payload
+            self.search_config = self.session.config
             self.preparing = False
             if self.cancelled:
                 self.session.cancel()
@@ -748,7 +776,7 @@ class Window(QMainWindow):
 
         self.page = evidence_page(result)
         self._show_text("\n\n".join(f"{e.location}  {e.snippet}" for e in result.evidence))
-        if self.settings.preview_enabled and hasattr(self, "search_config"):
+        if self.settings.preview_enabled and getattr(self, "search_config", None) is not None:
             self.preview_timer.start()
 
     def _load_preview(self):
@@ -785,7 +813,7 @@ class Window(QMainWindow):
             index = self.proxy.mapToSource(current)
             if index.isValid() and self.model.rows[index.row()].result is result:
                 self.current = self.model.rows[index.row()].result = updated
-                self.model.dataChanged.emit(self.model.index(index.row(), 2), self.model.index(index.row(), 3))
+                self.model.refresh(index.row(), 2, 3)
         self._show_text(result_text)
 
     @staticmethod
@@ -862,7 +890,7 @@ class Window(QMainWindow):
             self._request_pdf(self.page)
 
     def _request_pdf(self, page):
-        if not self.current or not hasattr(self, "search_config"):
+        if not self.current or getattr(self, "search_config", None) is None:
             return
         self.stack.setCurrentIndex(1)
         self.pdf_button.setText("文字表示")
@@ -918,8 +946,6 @@ class Window(QMainWindow):
         menu.exec(self.table.viewport().mapToGlobal(point))
 
     def _confirm(self):
-        from ..core.paths import normalized_key
-
         for i in self._selected():
             row = self.model.rows[i]
             key = normalized_key(row.result.path)
@@ -931,8 +957,7 @@ class Window(QMainWindow):
                 self.confirmed.discard(key)
                 self.settings.confirmed_paths = [path for path in self.settings.confirmed_paths
                                                  if normalized_key(path) != key]
-            cell = self.model.index(i, 0)
-            self.model.dataChanged.emit(cell, cell)
+            self.model.refresh(i, 0, 0)
         self._filters()
 
     def _copy(self):
@@ -1008,17 +1033,46 @@ class Window(QMainWindow):
             self.database.close()
 
 
-def run(settings, *, report="", quit_after_ms=0):
+def run(settings, *, report="", smoke_root=""):
     app = QApplication([])
+    if smoke_root:
+        settings.autosave_results = False
+        settings.index_enabled = False
+        settings.defaults.pdf_ocr_mode = "off"
     window = Window(settings)
     window.show()
 
-    def ready():
-        if report:
-            with open(report, "w", encoding="utf-8") as handle:
-                handle.write("Qt window ready\n")
-        if quit_after_ms:
-            QTimer.singleShot(quit_after_ms, window.close)
+    def report_and_close(message):
+        with open(report, "w", encoding="utf-8") as handle:
+            handle.write(message + "\n")
+        window.close()
 
-    QTimer.singleShot(0, ready)
+    def verify_preview():
+        if window.preview_cache:
+            if "AAA" in window.preview.toPlainText() and window.matches:
+                report_and_close("Qt search and preview passed")
+            else:
+                report_and_close("Qt preview mismatch")
+        else:
+            QTimer.singleShot(50, verify_preview)
+
+    def verify_search():
+        if window.summary is None:
+            QTimer.singleShot(50, verify_search)
+        elif window.proxy.rowCount() != 1:
+            report_and_close("Qt search result count mismatch")
+        else:
+            window.table.setCurrentIndex(window.proxy.index(0, 1))
+            QTimer.singleShot(50, verify_preview)
+
+    if report and smoke_root:
+        def start_smoke():
+            window.root_input.setEditText(smoke_root)
+            window.query.setText("AAA & BBB")
+            window.start_search()
+            QTimer.singleShot(50, verify_search)
+
+        QTimer.singleShot(0, start_smoke)
+    elif report:
+        QTimer.singleShot(0, lambda: report_and_close("Qt window ready"))
     return app.exec()

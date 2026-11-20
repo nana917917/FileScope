@@ -77,13 +77,19 @@ jobs:
           Write-Host "PASS diagnostics, headless search, source equivalence ($frozenPaths)"
 
           $ready = Join-Path $work 'qt-ready.txt'
-          $gui = Start-Process -FilePath $exe -ArgumentList @('--gui-ready', $ready) -PassThru -WindowStyle Hidden
+          $qtCorpus = Join-Path $work 'qt-corpus'
+          New-Item -ItemType Directory -Force -Path $qtCorpus | Out-Null
+          'AAA BBB' | Set-Content (Join-Path $qtCorpus 'sample.csv')
+          'CCC' | Set-Content (Join-Path $qtCorpus 'non-match.txt')
+          $gui = Start-Process -FilePath $exe -ArgumentList @('--gui-ready', $ready, '--gui-smoke-root', $qtCorpus) -PassThru -WindowStyle Hidden
           if (-not $gui.WaitForExit(30000)) {
             $gui.Kill()
             throw 'Frozen Qt window did not close'
           }
-          if ($gui.ExitCode -ne 0 -or -not (Test-Path $ready)) { throw 'Frozen Qt startup failed' }
-          Write-Host 'PASS Qt window ready and exited normally'
+          if ($gui.ExitCode -ne 0 -or -not (Test-Path $ready) -or (Get-Content $ready) -ne 'Qt search and preview passed') {
+            throw 'Frozen Qt startup, search or preview failed'
+          }
+          Write-Host 'PASS Qt window search, preview and normal exit'
 
       - name: Verify Qt search and result interactions
         shell: pwsh

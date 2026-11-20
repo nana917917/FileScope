@@ -105,3 +105,23 @@ def test_qt_search_index_and_preview(qt_app, monkeypatch, tmp_path):
     pump(qt_app, lambda: window.summary is not None)
     assert window.summary.coverage.indexed > 0
     window.close()
+
+
+def test_pdf_page_render_is_on_demand(qt_app, tmp_path):
+    pytest.importorskip("pypdfium2")
+    from PIL import Image
+
+    from filescope.ui.qt_preview import pdf_preview
+    from filescope.ui.state import UiState
+
+    path = tmp_path / "test.pdf"
+    with Image.new("RGB", (100, 150), "white") as page:
+        page.save(path)
+    result = FileResult(
+        path=str(path), size=path.stat().st_size, mtime_ns=0, file_kind=FileKind.PDF,
+        cloud_state=CloudState.LOCAL, source_type=SourceType.LOCAL,
+    )
+    config = UiState().to_config(Settings())
+    png, page_number, count = pdf_preview(result, config, 1)
+    assert png.startswith(b"\x89PNG")
+    assert page_number == count == 1

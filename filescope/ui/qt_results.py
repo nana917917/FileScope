@@ -1,5 +1,7 @@
 """Virtual result table shared by the Qt search view and its benchmark."""
 
+from collections import OrderedDict
+
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
@@ -19,6 +21,7 @@ class ResultTable(QAbstractTableModel):
         super().__init__(parent)
         self.rows = []
         self.icons = {}
+        self.cells = OrderedDict()
 
     def rowCount(self, parent=ROOT_INDEX):
         return 0 if parent.isValid() else len(self.rows)
@@ -38,7 +41,14 @@ class ResultTable(QAbstractTableModel):
         result = row.result
         column = index.column()
         if role == Qt.DisplayRole:
-            return results.values_for(row)[column]
+            key = index.row()
+            values = self.cells.get(key)
+            if values is None:
+                values = results.values_for(row)
+                self.cells[key] = values
+                if len(self.cells) > 1024:
+                    self.cells.popitem(last=False)
+            return values[column]
         if role == Qt.DecorationRole and column == 1:
             return self.icon(display_kind(result))
         if role == Qt.ToolTipRole:
@@ -69,7 +79,12 @@ class ResultTable(QAbstractTableModel):
     def clear(self):
         self.beginResetModel()
         self.rows.clear()
+        self.cells.clear()
         self.endResetModel()
+
+    def refresh(self, row, first, last):
+        self.cells.pop(row, None)
+        self.dataChanged.emit(self.index(row, first), self.index(row, last))
 
 
 class ResultView(QSortFilterProxyModel):
@@ -82,6 +97,8 @@ class ResultView(QSortFilterProxyModel):
         self.text = ""
 
     def filterAcceptsRow(self, row, _parent):
+        if not (self.kinds or self.sources or self.ocr or self.review or self.text):
+            return True
         item = self.sourceModel().rows[row]
         result = item.result
         return (
