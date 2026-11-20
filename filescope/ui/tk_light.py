@@ -5,6 +5,7 @@ from tkinter import ttk
 
 
 def apply_light(root):
+    root.filescope_light = True
     root.configure(background="#f6f8fb")
     style = ttk.Style(root)
     style.theme_use("clam")

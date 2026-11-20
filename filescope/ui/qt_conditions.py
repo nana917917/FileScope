@@ -27,7 +27,12 @@ def editable_nof(expression, operator):
         node = parse_query(expression, legacy_operator=operator)
     except QuerySyntaxError:
         return None
-    if isinstance(node, NOf) and all(isinstance(term, Term) and "\n" not in term.text for term in node.children):
+    if (
+        isinstance(node, NOf)
+        and all(isinstance(term, Term) and "\n" not in term.text and term.text == term.text.strip()
+                for term in node.children)
+        and len({term.text for term in node.children}) == len(node.children)
+    ):
         return node
     return None
 

@@ -380,6 +380,8 @@ class MainWindow(ttk.Frame):
         self.document_icons = document_icons(self.tree)
         for key, label, width in results_module.COLUMNS:
             self.tree.heading(key, text=label, command=lambda column=key: self.sort_by(column))
+            if getattr(self.winfo_toplevel(), "filescope_light", False):
+                width = {"name": 260, "path": 155}.get(key, width)
             saved_width = _bounded_layout_value(self.settings, f"column_{key}", width, 24, 2000)
             self.tree.column(key, width=saved_width, anchor="w", stretch=(key in ("name", "path")))
         self._update_columns()

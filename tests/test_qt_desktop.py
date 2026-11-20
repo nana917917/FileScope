@@ -8,7 +8,7 @@ import pytest
 from filescope.config import Settings
 from filescope.core.models import CloudState, FileKind, FileResult, SourceType
 from filescope.core.query import NOf, parse_query
-from filescope.ui.qt_conditions import build_condition
+from filescope.ui.qt_conditions import build_condition, editable_nof
 from filescope.ui.results import Row
 
 
@@ -38,6 +38,14 @@ def test_literal_conditions():
     assert parse_query(build_condition(5, ["a", "b"], distance=50)).distance == 50
     with pytest.raises(ValueError, match="一致数"):
         build_condition(2, ["only one"], 2)
+
+
+def test_nof_edit_only_accepts_a_simple_standalone_threshold():
+    expression = '2of(680S, DEV, "温度サイクル")'
+    node = editable_nof(expression, "OR")
+    assert node == parse_query(expression)
+    assert editable_nof(f"({expression}) & !test", "OR") is None
+    assert editable_nof("2of(AAA, BBB", "OR") is None
 
 
 def test_qt_large_model_keeps_selection_and_sorts(qt_app, monkeypatch, tmp_path):

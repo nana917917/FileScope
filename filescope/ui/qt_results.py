@@ -22,6 +22,7 @@ class ResultTable(QAbstractTableModel):
         self.rows = []
         self.icons = {}
         self.cells = OrderedDict()
+        self.sort_keys = {}
 
     def rowCount(self, parent=ROOT_INDEX):
         return 0 if parent.isValid() else len(self.rows)
@@ -80,10 +81,12 @@ class ResultTable(QAbstractTableModel):
         self.beginResetModel()
         self.rows.clear()
         self.cells.clear()
+        self.sort_keys.clear()
         self.endResetModel()
 
     def refresh(self, row, first, last):
         self.cells.pop(row, None)
+        self.sort_keys.pop(row, None)
         self.dataChanged.emit(self.index(row, first), self.index(row, last))
 
 
@@ -110,13 +113,19 @@ class ResultView(QSortFilterProxyModel):
         )
 
     def sort_key(self, index):
-        row = self.sourceModel().rows[index.row()]
+        model = self.sourceModel()
+        number = index.row()
+        if number in model.sort_keys:
+            return model.sort_keys[number][index.column()]
+        row = model.rows[number]
         result = row.result
-        return (
+        keys = (
             row.confirmed, result.name.casefold(), result.displays, result.hit_count,
             display_kind(result), result.mtime_ns, result.size, result.source_type.value,
             result.ocr_pages, result.path.casefold(),
-        )[index.column()]
+        )
+        model.sort_keys[number] = keys
+        return keys[index.column()]
 
     def lessThan(self, left, right):
         return self.sort_key(left) < self.sort_key(right)

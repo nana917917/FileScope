@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--index", action="store_true")
     parser.add_argument("--light", action="store_true")
     parser.add_argument("--cancel-ms", type=int)
+    parser.add_argument("--static-proxy", action="store_true")
     args = parser.parse_args()
     sys.path.insert(0, str(Path(args.source).resolve()))
     profile = Path(args.profile).resolve()
@@ -71,6 +72,8 @@ def main():
         window = Window(settings)
         if args.sort:
             window.table.sortByColumn(1, Qt.AscendingOrder)
+        if args.static_proxy:
+            window.proxy.setDynamicSortFilter(False)
         window.root_input.setEditText(args.corpus)
         window.query.setText(args.query)
         window_ready = time.perf_counter()
