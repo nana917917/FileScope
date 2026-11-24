@@ -1,6 +1,6 @@
-FileScope 5.2.0 Windows trial candidate
+FileScope 5.2.0 Windows portable
 Build: pyinstaller onedir (win64)
-Source: codex/v5.2.0-final-candidate, based on 4a7da92
+Source: Git tag v5.2.0
 
 Contents
   FileScope.exe        program (no Python installation required)

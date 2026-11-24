@@ -603,3 +603,31 @@ def test_result_threshold_label_keeps_lower_bound():
     assert results_module.display_match(
         "一致:680S、DEV / 未一致:温度サイクル（2/3）"
     ) == "680S・DEV（2/3）"
+
+
+
+def test_condition_dialog_has_stable_width_and_preserves_original_expression(tk_root):
+    from filescope.ui.dialogs import ConditionBuilderDialog
+    from filescope.ui.tk_light import apply_theme
+
+    original = "2of(680S,DEV,温度サイクル)"
+    tk_root.deiconify()
+    tk_root.update()
+    apply_theme(tk_root, "light", size=13)
+    dialog = ConditionBuilderDialog(tk_root, initial=original)
+    try:
+        tk_root.update()
+        assert dialog.window.winfo_width() >= 740
+        assert dialog.threshold_var.get() == "3つのうち2つ以上を含む"
+        width = dialog.window.winfo_width()
+        dialog._toggle_file_conditions()
+        dialog._toggle_advanced()
+        tk_root.update()
+        assert dialog.window.winfo_width() == width
+        dialog._accept()
+        assert dialog.result == original
+    finally:
+        if dialog.window.winfo_exists():
+            dialog.window.destroy()
+        apply_theme(tk_root, "light")
+        tk_root.withdraw()

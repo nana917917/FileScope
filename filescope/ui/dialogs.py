@@ -34,8 +34,13 @@ class Dialog(ttk.Frame):
         self.window = tk.Toplevel(parent)
         self.window.title(title)
         self.window.transient(parent)
-        self.window.geometry(f"{width}x{height}")
-        self.window.minsize(320, 240)
+        parent.update_idletasks()
+        screen_width, screen_height = self.window.winfo_screenwidth(), self.window.winfo_screenheight()
+        width, height = min(width, screen_width - 32), min(height, screen_height - 96)
+        x = max(0, min(parent.winfo_rootx() + (parent.winfo_width() - width) // 2, screen_width - width - 12))
+        y = max(0, min(parent.winfo_rooty() + (parent.winfo_height() - height) // 2, screen_height - height - 64))
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+        self.window.minsize(min(480, width), min(290, height))
         super().__init__(self.window)
         self.pack(fill="both", expand=True)
         self.result = None
@@ -68,8 +73,10 @@ class ConditionBuilderDialog(Dialog):
     TYPE_EXTENSIONS: ClassVar[dict[str, tuple[str, ...]]] = TYPE_EXTENSION_MAP
 
     def __init__(self, parent, *, initial: str = "", legacy_operator: str = "OR") -> None:
-        super().__init__(parent, "条件を作る", width=900, height=620)
+        super().__init__(parent, "条件を作る", width=940, height=690)
+        self.window.minsize(min(740, self.window.winfo_screenwidth() - 32), 350)
         self.legacy_operator = legacy_operator
+        self._initial_expression = initial
         groups = BuilderGroups()
         self._metadata_rest: list[str] = []
         if initial.strip():
@@ -82,8 +89,17 @@ class ConditionBuilderDialog(Dialog):
                 # can repair it instead of losing it.
                 groups.advanced = initial.strip()
 
-        body = ttk.Frame(self, padding=10)
-        body.pack(fill="both", expand=True)
+        footer = ttk.Frame(self, padding=(12, 4, 12, 10))
+        footer.pack(side="bottom", fill="x")
+        canvas = tk.Canvas(self, highlightthickness=0, background=ttk.Style(self).lookup("TFrame", "background") or self.window.cget("background"))
+        scroll = ttk.Scrollbar(self, command=canvas.yview)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.configure(yscrollcommand=scroll.set)
+        body = ttk.Frame(canvas, padding=12)
+        body_id = canvas.create_window(0, 0, window=body, anchor="nw")
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(body_id, width=event.width))
+        body.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
         ttk.Label(
             body,
             text="使いたい条件の欄に、候補語を1行ずつ入力してください。",
@@ -92,9 +108,10 @@ class ConditionBuilderDialog(Dialog):
         columns = ttk.Frame(body)
         columns.pack(fill="both", expand=True, pady=(8, 0))
         left = ttk.Frame(columns)
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        columns.columnconfigure((0, 1), weight=1, uniform="condition")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         right = ttk.Frame(columns)
-        right.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
         self.all_of = self._multiline(
             left, "すべて含む", "入れた言葉が全部ある資料（例: 電源 / ノイズ）", 4
@@ -118,6 +135,20 @@ class ConditionBuilderDialog(Dialog):
         ttk.Label(n_frame, textvariable=self.threshold_var, style="Muted.TLabel").pack(anchor="w")
         self.n_of = tk.Text(n_frame, height=3, width=24, wrap="word")
         self.n_of.pack(fill="x", pady=(4, 0))
+        word_row = ttk.Frame(n_frame)
+        word_row.pack(fill="x", pady=(4, 0))
+        word = ttk.Entry(word_row, width=14)
+        word.pack(side="left", fill="x", expand=True)
+        def add_word():
+            value = word.get().strip()
+            if value:
+                self._append_line(self.n_of, value)
+                word.delete(0, "end")
+                self._preview()
+        word.bind("<Return>", lambda _event: add_word())
+        ttk.Button(word_row, text="＋ 言葉を追加", command=add_word).pack(side="right")
+        ttk.Label(n_frame, text="例：680S / DEV / 温度サイクル（各1行）",
+                  style="Muted.TLabel", wraplength=260).pack(anchor="w")
 
         self.phrase = self._entry(right, "完全一致", "入力した並びで探す（例: 耐久 試験）")
 
@@ -125,11 +156,11 @@ class ConditionBuilderDialog(Dialog):
         near_frame.pack(fill="x", pady=(6, 0))
         near_row = ttk.Frame(near_frame)
         near_row.pack(fill="x")
-        self.near_a = ttk.Entry(near_row, width=10)
-        self.near_a.pack(side="left")
+        self.near_a = ttk.Entry(near_row, width=6)
+        self.near_a.pack(side="left", fill="x", expand=True)
         ttk.Label(near_row, text="と").pack(side="left", padx=3)
-        self.near_b = ttk.Entry(near_row, width=10)
-        self.near_b.pack(side="left")
+        self.near_b = ttk.Entry(near_row, width=6)
+        self.near_b.pack(side="left", fill="x", expand=True)
         self.near_distance = ttk.Entry(near_row, width=4)
         self.near_distance.pack(side="left", padx=(6, 2))
         ttk.Label(near_row, text="文字以内").pack(side="left")
@@ -138,25 +169,24 @@ class ConditionBuilderDialog(Dialog):
         self._build_file_conditions(body, groups)
         self._build_advanced(body, groups)
 
-        preview_row = ttk.Frame(body)
+        preview_row = ttk.Frame(footer)
         preview_row.pack(fill="x", pady=(8, 2))
         ttk.Label(preview_row, text="この条件で検索される式").pack(side="left")
         ttk.Button(preview_row, text="更新", command=self._preview).pack(side="right")
         self.preview_var = tk.StringVar(value="")
-        ttk.Entry(body, textvariable=self.preview_var, state="readonly").pack(fill="x")
+        ttk.Entry(footer, textvariable=self.preview_var, state="readonly").pack(fill="x")
         self.error_var = tk.StringVar(value="")
-        ttk.Label(body, textvariable=self.error_var, style="Error.TLabel").pack(anchor="w")
+        ttk.Label(footer, textvariable=self.error_var, style="Error.TLabel").pack(anchor="w")
 
-        buttons = ttk.Frame(body)
+        buttons = ttk.Frame(footer)
         buttons.pack(fill="x", pady=(6, 0))
         ttk.Button(buttons, text="この条件を使う", command=self._accept).pack(side="right", padx=4)
         ttk.Button(buttons, text="条件をクリア", command=self._clear).pack(side="right", padx=4)
         ttk.Button(buttons, text="キャンセル", command=self._cancel).pack(side="right")
 
         self._apply_groups(groups)
-        self.after_idle(self._fit_height)
         self.count_var.trace_add("write", lambda *_: self._preview())
-        self._preview()
+        self._initial_generated = self._preview()
         for widget in (self.all_of, self.any_of, self.none_of, self.n_of):
             widget.bind("<KeyRelease>", lambda _event: self._preview())
         for entry in (self.phrase, self.near_a, self.near_b, self.name_entry, self.size_value, self.modified_value):
@@ -164,7 +194,7 @@ class ConditionBuilderDialog(Dialog):
 
     # ----------------------------------------------------------- widgets
     def _multiline(self, parent, label: str, hint: str, height: int) -> tk.Text:
-        ttk.Label(parent, text=label, font=("", 9, "bold")).pack(anchor="w", pady=(6, 0))
+        ttk.Label(parent, text=label, style="Section.TLabel").pack(anchor="w", pady=(6, 0))
         # An explicit small width keeps the requested size down so both columns
         # stay inside the dialog; the widget stretches with fill="x" anyway.
         widget = tk.Text(parent, height=height, width=28, wrap="word")
@@ -173,7 +203,7 @@ class ConditionBuilderDialog(Dialog):
         return widget
 
     def _entry(self, parent, label: str, hint: str) -> ttk.Entry:
-        ttk.Label(parent, text=label, font=("", 9, "bold")).pack(anchor="w", pady=(6, 0))
+        ttk.Label(parent, text=label, style="Section.TLabel").pack(anchor="w", pady=(6, 0))
         entry = ttk.Entry(parent)
         entry.pack(fill="x")
         ttk.Label(parent, text=hint, style="Muted.TLabel").pack(anchor="w")
@@ -262,12 +292,6 @@ class ConditionBuilderDialog(Dialog):
             self._toggle_advanced()
             self._advanced_open = True
 
-    def _fit_height(self) -> None:
-        self.window.update_idletasks()
-        height = min(self.window.winfo_screenheight() - 100, self.winfo_reqheight() + 12)
-        if height > self.window.winfo_height():
-            self.window.geometry(f"{self.window.winfo_width()}x{height}")
-
     def _toggle_file_conditions(self) -> None:
         if self.file_body.winfo_manager():
             self.file_body.pack_forget()
@@ -275,7 +299,6 @@ class ConditionBuilderDialog(Dialog):
         else:
             self.file_body.pack(fill="x", pady=(4, 0))
             self._file_toggle.configure(text="▼ 表示中")
-            self.after_idle(self._fit_height)
 
     def _toggle_advanced(self) -> None:
         if self.advanced_body.winfo_manager():
@@ -284,7 +307,6 @@ class ConditionBuilderDialog(Dialog):
         else:
             self.advanced_body.pack(fill="x", pady=(4, 0))
             self._advanced_toggle.configure(text="▼ 表示中")
-            self.after_idle(self._fit_height)
 
     # ---------------------------------------------------------- population
     def _apply_groups(self, groups: BuilderGroups) -> None:
@@ -448,7 +470,7 @@ class ConditionBuilderDialog(Dialog):
         if not query:
             messagebox.showinfo("条件が空です", "条件を1つ以上入力してください。", parent=self.window)
             return
-        self._close(query)
+        self._close(self._initial_expression if query == self._initial_generated and self._initial_expression else query)
 
 
 def _human_size(value: str) -> str:
@@ -577,7 +599,7 @@ class AdvancedSettingsDialog(Dialog):
         }
 
         row = 0
-        ttk.Label(body, text="検索モード", font=("", 9, "bold")).grid(row=row, column=0, sticky="w", pady=(0, 2))
+        ttk.Label(body, text="検索モード", style="Section.TLabel").grid(row=row, column=0, sticky="w", pady=(0, 2))
         mode_frame = ttk.Frame(body)
         mode_frame.grid(row=row, column=1, sticky="w")
         for mode in ("fast", "standard", "full"):
@@ -882,7 +904,7 @@ class ShortcutsDialog(Dialog):
             ("Space", "確認済みの切り替え"),
         ]
         for index, (key, description) in enumerate(rows):
-            ttk.Label(body, text=key, font=("", 9, "bold")).grid(row=index, column=0, sticky="w", pady=2)
+            ttk.Label(body, text=key, style="Section.TLabel").grid(row=index, column=0, sticky="w", pady=2)
             ttk.Label(body, text=description).grid(row=index, column=1, sticky="w", padx=12)
         ttk.Button(body, text="閉じる", command=self._cancel).grid(row=len(rows) + 1, column=1, sticky="e", pady=10)
 

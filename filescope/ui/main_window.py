@@ -106,15 +106,7 @@ class MainWindow(ttk.Frame):
         self._autosave_result_queue: queue.Queue = queue.Queue()
         self._autosave_thread: threading.Thread | None = None
         self._search_generation = 0
-        # One font family for the whole window (Windows UI font); only the query
-        # field is one point larger than the body text.
-        import tkinter.font as tkfont
-
-        base = tkfont.nametofont("TkDefaultFont")
-        family = base.actual("family")
-        self.body_font = (family, 9)
-        self.body_bold = (family, 9, "bold")
-        self.query_font = (family, 10)
+        self.query_font = "TkTextFont"
 
         self.pack(fill="both", expand=True)
         self._build_menu()
@@ -206,6 +198,7 @@ class MainWindow(ttk.Frame):
 
         appearance = tk.Menu(menu, tearoff=False)
         appearance.add_command(label="テーマと表示密度…", command=self.open_appearance)
+        appearance.add_command(label="一覧レイアウトを初期化", command=self.reset_result_layout)
         menu.add_cascade(label="表示", menu=appearance)
 
         settings = tk.Menu(menu, tearoff=False)
@@ -262,7 +255,7 @@ class MainWindow(ttk.Frame):
             form,
             text="検索開始",
             command=self.start_search,
-            font=self.body_bold,
+            font="TkDefaultFont",
             background=PRIMARY_BG,
             foreground="#ffffff",
             activebackground=PRIMARY_ACTIVE_BG,
@@ -287,7 +280,7 @@ class MainWindow(ttk.Frame):
         self.mode_var = tk.StringVar(value=self.state.mode)
         mode_frame = ttk.Frame(mode_row)
         mode_frame.pack(side="left")
-        ttk.Label(mode_frame, text="検索モード", font=self.body_bold).pack(side="left", padx=(0, 6))
+        ttk.Label(mode_frame, text="検索モード", style="Section.TLabel").pack(side="left", padx=(0, 6))
         for mode in ("fast", "standard", "full"):
             ttk.Radiobutton(
                 mode_frame,
@@ -431,7 +424,7 @@ class MainWindow(ttk.Frame):
 
         results_bar = ttk.Frame(left)
         results_bar.pack(fill="x", pady=(0, 4))
-        ttk.Label(results_bar, text="検索結果", font=self.body_bold).pack(side="left")
+        ttk.Label(results_bar, text="検索結果", style="Section.TLabel").pack(side="left")
         ttk.Label(results_bar, textvariable=self._result_count_text, style="Muted.TLabel").pack(side="left", padx=8)
         self.refine_frame = ttk.Frame(left)
         ttk.Label(self.refine_frame, text="追加条件（本文も再検索）").pack(side="left")
@@ -499,9 +492,9 @@ class MainWindow(ttk.Frame):
         for key, label, width in results_module.COLUMNS:
             self.tree.heading(key, text=label, command=lambda column=key: self.sort_by(column))
             if getattr(self.winfo_toplevel(), "filescope_light", False):
-                width = {"name": 250, "displays": 170, "path": 145}.get(key, width)
+                width = self._result_width(key, width)
             saved_width = _bounded_layout_value(self.settings, f"column_{key}", width, 24, 2000)
-            self.tree.column(key, width=saved_width, anchor="w", stretch=(key in ("name", "path")))
+            self.tree.column(key, width=saved_width, anchor="w", stretch=(key in ("name", "displays")))
         self._update_columns()
         self._apply_result_colors()
 
@@ -554,6 +547,21 @@ class MainWindow(ttk.Frame):
         # width is the sum of its columns) can squeeze the preview to zero width.
         self.after(150, self._place_sash)
         body.bind("<Configure>", self._on_body_configure)
+
+    @staticmethod
+    def _result_width(key, default):
+        return {"name": 285, "displays": 210, "path": 124}.get(key, default)
+
+    def reset_result_layout(self):
+        for key, _label, width in results_module.COLUMNS:
+            value = self._result_width(key, width)
+            self.tree.column(key, width=value)
+            self.settings.window[f"column_{key}"] = value
+            self._column_vars[key].set(key in {"confirmed", "name", "displays", "hits", "kind", "path"})
+        self.settings.window["preview_ratio_per_mille"] = 370
+        self._update_columns()
+        self._place_sash(force=True)
+        self.settings.save()
 
     def _place_sash(self, *, force: bool = False) -> None:
         try:
@@ -1397,6 +1405,19 @@ class MainWindow(ttk.Frame):
         self._sync_state()
         self.start_search()
 
+    def show_result_details(self):
+        result = self._selected_result()
+        if result is None:
+            return
+        dialog = dialogs.Dialog(self.master, "検索結果の詳細", width=670, height=320)
+        text = tk.Text(dialog, wrap="word", font="TkTextFont", padx=12, pady=12)
+        text.pack(fill="both", expand=True)
+        conditions = "\n".join(result.displays)
+        text.insert("end", f"{result.name}\n\n{conditions}\n\n{result.path}")
+        text.configure(state="disabled")
+        ttk.Button(dialog, text="閉じる", command=dialog._cancel).pack(anchor="e", padx=12, pady=8)
+        dialog.show()
+
     def _show_context_menu(self, event) -> None:
         row_id = self.tree.identify_row(event.y)
         if row_id:
@@ -1406,7 +1427,8 @@ class MainWindow(ttk.Frame):
         menu.add_command(label="フォルダを開く", command=self.reveal_selected)
         menu.add_command(label="Excelの該当セルを開く", command=self.open_excel_cell)
         menu.add_separator()
-        menu.add_command(label="Copy Path", command=self.copy_path)
+        menu.add_command(label="ファイル名・一致条件・パスの全文…", command=self.show_result_details)
+        menu.add_command(label="パスをコピー", command=self.copy_path)
         menu.add_command(label="Copy Content", command=self.copy_content)
         menu.add_separator()
         menu.add_command(label="確認済みを切り替え", command=self.toggle_confirmed)

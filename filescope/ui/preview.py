@@ -64,6 +64,7 @@ class PreviewPane(ttk.Frame):
         self._page_job = 0
 
         self._on_open = on_open
+        self._body_preview = None
         self._build_header()
         self._build_view_switch()
         self._build_text_view()
@@ -76,7 +77,7 @@ class PreviewPane(ttk.Frame):
         header = ttk.Frame(self)
         header.pack(fill="x", padx=4, pady=(4, 2))
         self.title_var = tk.StringVar(value="プレビュー")
-        self.filename_label = ttk.Label(header, textvariable=self.title_var, font=("", 10, "bold"))
+        self.filename_label = ttk.Label(header, textvariable=self.title_var, style="Section.TLabel")
         self.filename_label.pack(fill="x", anchor="w")
         header.bind("<Configure>", lambda event: self.filename_label.configure(wraplength=max(event.width - 8, 80)))
         controls = ttk.Frame(self)
@@ -84,17 +85,21 @@ class PreviewPane(ttk.Frame):
         if self._on_open is not None:
             ttk.Button(controls, text="原本を開く", command=self._on_open).pack(side="left", padx=(0, 3))
         self.match_var = tk.StringVar(value="")
-        ttk.Button(controls, text="前へ", command=lambda: self.step(-1)).pack(side="left", padx=2)
-        ttk.Button(controls, text="次へ", command=lambda: self.step(1)).pack(side="left", padx=2)
+        ttk.Button(controls, text="前へ", width=5, command=lambda: self.step(-1)).pack(side="left", padx=2)
+        ttk.Button(controls, text="次へ", width=5, command=lambda: self.step(1)).pack(side="left", padx=2)
         ttk.Label(controls, textvariable=self.match_var, style="Muted.TLabel").pack(side="right", padx=4)
+        modes = ttk.Frame(self)
+        modes.pack(fill="x", padx=4, pady=3)
+        self.view_choice = tk.StringVar(value="evidence")
+        for label, value in (("一致箇所", "evidence"), ("本文", "text")):
+            ttk.Radiobutton(modes, text=label, variable=self.view_choice, value=value,
+                            command=lambda mode=value: self.set_view(mode)).pack(side="left", padx=(0, 8))
         self.info_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self.info_var, style="Muted.TLabel").pack(anchor="w", padx=5)
 
     def _build_view_switch(self) -> None:
         self.view_bar = ttk.Frame(self)
-        self.text_button = ttk.Button(self.view_bar, text="文字", width=6, command=lambda: self.set_view("text"))
-        self.text_button.pack(side="left")
-        self.image_button = ttk.Button(self.view_bar, text="画像", width=6, command=lambda: self.set_view("image"))
+        self.image_button = ttk.Button(self.view_bar, text="PDF画像", width=8, command=lambda: self.set_view("image"))
         self.image_button.pack(side="left", padx=3)
         self.page_prev = ttk.Button(
             self.view_bar, text="◀", width=3, command=lambda: self.change_page(-1), state="disabled"
@@ -118,7 +123,7 @@ class PreviewPane(ttk.Frame):
         self.text_frame = ttk.Frame(self)
         self.text_frame.pack(fill="both", expand=True, padx=(4, 0), pady=(0, 4))
         self.text = tk.Text(
-            self.text_frame, wrap="word", height=20, width=46, undo=False, font=("Consolas", 9)
+            self.text_frame, wrap="word", height=20, width=46, undo=False, font="TkTextFont"
         )
         scroll = ttk.Scrollbar(self.text_frame, orient="vertical", command=self.text.yview)
         self.text.configure(yscrollcommand=scroll.set, state="disabled")
@@ -126,7 +131,7 @@ class PreviewPane(ttk.Frame):
         scroll.pack(side="right", fill="y")
         self.text.tag_configure("hit", background="#ffe680", foreground="#202020")
         self.text.tag_configure("current", background="#ffb347", foreground="#202020")
-        self.text.tag_configure("location", foreground="#0b6b3a", font=("Consolas", 9, "bold"))
+        self.text.tag_configure("location", foreground="#28795c")
         self.text.tag_configure("note", foreground="#777777")
 
     def _build_image_view(self) -> None:
@@ -148,17 +153,21 @@ class PreviewPane(ttk.Frame):
         self._config = config
         self._search_text = search_text
         self._on_chunks = on_chunks
+        self._body_preview = None
+        self._view = "evidence" if result.evidence else "text"
+        self.view_choice.set(self._view)
+        self.view_bar.pack_forget()
+        self._show_text_view()
         self._token += 1
         token = self._token
         key = (result.path, result.mtime_ns)
         cached = self._cache.get(key)
         if cached is not None:
             self._cache.move_to_end(key)
-            self._render(cached, result)
+            self._body_preview = cached
+            self._render_selected()
             return
-        self.title_var.set(result.name)
-        self.info_var.set("読み込み中…")
-        self._set_text("\n\n".join(f"{hit.location}  {hit.snippet}" for hit in result.evidence)[:MAX_PREVIEW_CHARS])
+        self._render_selected()
         options = self._extract_options(config)
         threading.Thread(
             target=self._load,
@@ -170,6 +179,8 @@ class PreviewPane(ttk.Frame):
     def clear(self) -> None:
         self._token += 1
         self._current = None
+        self._body_preview = None
+        self._match_indexes = []
         self.title_var.set("プレビュー")
         self.match_var.set("")
         self.info_var.set("")
@@ -200,11 +211,13 @@ class PreviewPane(ttk.Frame):
         if view == "image" and (not self._current or self._pages <= 0):
             return
         self._view = view
+        self.view_choice.set(view)
         if view == "image":
             self._show_image_view()
             self._request_page()
         else:
             self._show_text_view()
+            self._render_selected()
 
     def _show_text_view(self) -> None:
         self.image_frame.pack_forget()
@@ -235,13 +248,13 @@ class PreviewPane(ttk.Frame):
 
     def _update_page_controls(self) -> None:
         if self._pages > 0 and self._current and self._current.file_kind is FileKind.PDF:
-            self.view_bar.pack(fill="x", padx=4, pady=(2, 2), before=self.text_frame)
+            current_frame = self.image_frame if self.image_frame.winfo_manager() else self.text_frame
+            self.view_bar.pack(fill="x", padx=4, pady=(2, 2), before=current_frame)
             self.page_var.set(f"{self._page} / {self._pages}ページ")
             self.zoom_var.set(f"{self._zoom * 100:.0f}%")
             self.page_prev.configure(state="normal" if self._page > 1 else "disabled")
             self.page_next.configure(state="normal" if self._page < self._pages else "disabled")
             self.image_button.configure(state="normal" if self._pdf_renderable() else "disabled")
-            self.text_button.configure(state="normal")
         else:
             self.view_bar.pack_forget()
 
@@ -390,8 +403,51 @@ class PreviewPane(ttk.Frame):
         self._cache[key] = content
         while len(self._cache) > CACHE_LIMIT:
             self._cache.popitem(last=False)
-        if self._current is not None:
-            self._render(content, self._current)
+        self._body_preview = content
+        if self._view == "image":
+            return
+        if self._view == "evidence" and self._current is not None and self._current.evidence:
+            result = self._current
+            self.info_var.set(info_line(result, content))
+            self._pages = content.pages if result.file_kind is FileKind.PDF else 0
+            target = page_of(result.evidence[0].location) or 1
+            self._page = min(target, self._pages or 1)
+            self._update_page_controls()
+            return
+        self._render_selected()
+
+    def _render_selected(self) -> None:
+        result = self._current
+        if result is None:
+            return
+        body = self._body_preview
+        if self._view == "evidence" and result.evidence:
+            evidence = result.evidence[:100]
+            lines = []
+            locations = []
+            remaining = MAX_PREVIEW_CHARS
+            seen = set()
+            for hit in evidence:
+                key = (hit.location, hit.snippet)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if remaining <= 0:
+                    break
+                snippet = hit.snippet[:remaining]
+                lines.append(snippet)
+                locations.append(hit.location)
+                remaining -= len(snippet)
+            content = PreviewContent(
+                title=result.name, lines=lines, locations=locations,
+                pages=body.pages if body else 0,
+                note="取得済みの一致箇所を表示（最大100件）。検索結果のHit数とは別です。",
+            )
+        else:
+            content = body or PreviewContent(
+                title=result.name, lines=[], locations=[], note="本文を読み込み中…",
+            )
+        self._render(content, result)
 
     def _build(self, entry: FileEntry, options: ExtractOptions, chunks: list) -> PreviewContent:
         try:
@@ -407,17 +463,19 @@ class PreviewPane(ttk.Frame):
         locations: list[str] = []
         pages = 0
         total = 0
+        if entry.extension.casefold() == ".pdf":
+            pages = max((page_of(chunk.location) for chunk in chunks), default=0)
         for chunk in chunks:
-            page_number = page_of(chunk.location)
-            if page_number:
-                pages = max(pages, page_number)
             for line in str(chunk.text).splitlines() or [""]:
                 if not line.strip():
                     continue
-                lines.append(line)
+                snippet = line[:max(0, MAX_PREVIEW_CHARS - total)]
+                lines.append(snippet)
                 locations.append(chunk.location)
-                total += len(line)
-            if total > MAX_PREVIEW_CHARS:
+                total += len(snippet) + 1
+                if total >= MAX_PREVIEW_CHARS:
+                    break
+            if total >= MAX_PREVIEW_CHARS:
                 lines.append("…（以降省略）")
                 locations.append("")
                 break

@@ -50,6 +50,9 @@ $distDir = Join-Path $outputDir "FileScope"
 $exe = Join-Path $distDir "FileScope.exe"
 if (-not (Test-Path $exe)) { throw "build failed: $exe not found" }
 
+& $python scripts/bundle_notices.py (Join-Path $distDir "licenses")
+if ($LASTEXITCODE -ne 0) { throw "license collection failed" }
+
 # Documentation and version metadata travel next to the exe as well, so the zip
 # stays understandable when it is unpacked somewhere else.
 foreach ($file in @("README.md", "QUICKSTART.md", "THIRD_PARTY_NOTICES.md", "LICENSE.txt", "VERSION.txt", "ARCHITECTURE.md")) {
