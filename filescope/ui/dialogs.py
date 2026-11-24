@@ -86,7 +86,7 @@ class ConditionBuilderDialog(Dialog):
         body.pack(fill="both", expand=True)
         ttk.Label(
             body,
-            text="検索式を覚えなくても大丈夫です。各欄に1行ずつ入力してください（引用符は自動で処理します）。",
+            text="使いたい条件の欄に、候補語を1行ずつ入力してください。",
         ).pack(anchor="w")
 
         columns = ttk.Frame(body)
@@ -154,6 +154,7 @@ class ConditionBuilderDialog(Dialog):
         ttk.Button(buttons, text="キャンセル", command=self._cancel).pack(side="right")
 
         self._apply_groups(groups)
+        self.after_idle(self._fit_height)
         self.count_var.trace_add("write", lambda *_: self._preview())
         self._preview()
         for widget in (self.all_of, self.any_of, self.none_of, self.n_of):
@@ -235,6 +236,9 @@ class ConditionBuilderDialog(Dialog):
         ttk.Label(size_row, text="（例: 50MB）").pack(side="left", padx=4)
 
         self._prefill_file_conditions(groups.metadata)
+        if not groups.metadata:
+            self.file_body.pack_forget()
+            self._file_toggle.configure(text="▶ 表示")
         for variable in self.type_vars.values():
             variable.trace_add("write", lambda *_a: self._preview())
 
@@ -258,21 +262,29 @@ class ConditionBuilderDialog(Dialog):
             self._toggle_advanced()
             self._advanced_open = True
 
+    def _fit_height(self) -> None:
+        self.window.update_idletasks()
+        height = min(self.window.winfo_screenheight() - 100, self.winfo_reqheight() + 12)
+        if height > self.window.winfo_height():
+            self.window.geometry(f"{self.window.winfo_width()}x{height}")
+
     def _toggle_file_conditions(self) -> None:
-        if self.file_body.winfo_ismapped():
+        if self.file_body.winfo_manager():
             self.file_body.pack_forget()
             self._file_toggle.configure(text="▶ 表示")
         else:
             self.file_body.pack(fill="x", pady=(4, 0))
             self._file_toggle.configure(text="▼ 表示中")
+            self.after_idle(self._fit_height)
 
     def _toggle_advanced(self) -> None:
-        if self.advanced_body.winfo_ismapped():
+        if self.advanced_body.winfo_manager():
             self.advanced_body.pack_forget()
             self._advanced_toggle.configure(text="▶ 開く")
         else:
             self.advanced_body.pack(fill="x", pady=(4, 0))
             self._advanced_toggle.configure(text="▼ 表示中")
+            self.after_idle(self._fit_height)
 
     # ---------------------------------------------------------- population
     def _apply_groups(self, groups: BuilderGroups) -> None:

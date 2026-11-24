@@ -76,13 +76,17 @@ class PreviewPane(ttk.Frame):
         header = ttk.Frame(self)
         header.pack(fill="x", padx=4, pady=(4, 2))
         self.title_var = tk.StringVar(value="プレビュー")
-        ttk.Label(header, textvariable=self.title_var, font=("", 10, "bold")).pack(side="left", anchor="w")
+        self.filename_label = ttk.Label(header, textvariable=self.title_var, font=("", 10, "bold"))
+        self.filename_label.pack(fill="x", anchor="w")
+        header.bind("<Configure>", lambda event: self.filename_label.configure(wraplength=max(event.width - 8, 80)))
+        controls = ttk.Frame(self)
+        controls.pack(fill="x", padx=4, pady=(2, 0))
         if self._on_open is not None:
-            ttk.Button(header, text="原本を開く", command=self._on_open).pack(side="right", padx=2)
+            ttk.Button(controls, text="原本を開く", command=self._on_open).pack(side="left", padx=(0, 3))
         self.match_var = tk.StringVar(value="")
-        ttk.Button(header, text="次の一致 ▶", width=11, command=lambda: self.step(1)).pack(side="right", padx=2)
-        ttk.Button(header, text="◀ 前の一致", width=11, command=lambda: self.step(-1)).pack(side="right")
-        ttk.Label(header, textvariable=self.match_var, style="Muted.TLabel").pack(side="right", padx=6)
+        ttk.Button(controls, text="前へ", command=lambda: self.step(-1)).pack(side="left", padx=2)
+        ttk.Button(controls, text="次へ", command=lambda: self.step(1)).pack(side="left", padx=2)
+        ttk.Label(controls, textvariable=self.match_var, style="Muted.TLabel").pack(side="right", padx=4)
         self.info_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self.info_var, style="Muted.TLabel").pack(anchor="w", padx=5)
 
@@ -491,9 +495,8 @@ class PreviewPane(ttk.Frame):
 
 def info_line(result: FileResult, content: PreviewContent) -> str:
     parts = [result.file_kind.value, _size(result.size)]
-    if content.pages:
+    if content.pages and result.file_kind is FileKind.PDF:
         parts.append(f"{content.pages}ページ")
-    parts.append(os.path.dirname(result.path))
     if result.matched_terms:
         parts.append("一致: " + " / ".join(result.matched_terms[:6]))
     return " ｜ ".join(part for part in parts if part)

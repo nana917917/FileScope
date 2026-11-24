@@ -343,7 +343,7 @@ class MainWindow(ttk.Frame):
                 if self.ocr_status.ready
                 else "OCR: 未導入（クリックで診断）"
             ),
-            style="Muted.TLabel" if self.ocr_status.ready else "#8a6d3b",
+            style="Muted.TLabel",
         )
         self.ocr_label.pack(side="right", padx=10)
         self.ocr_label.bind("<Button-1>", lambda _e: self.open_diagnostics())
@@ -362,8 +362,12 @@ class MainWindow(ttk.Frame):
         labels = [MODE_LABELS.get(self.mode_var.get(), self.mode_var.get())]
         if self.exclude_var.get().strip():
             labels.append("除外語あり")
-        if self._refine_var.get().strip():
+        if self.state.refine_text.strip():
             labels.append("追加条件あり")
+        elif self._refine_var.get().strip():
+            labels.append("追加条件未適用")
+        if self.state.part_number_mode:
+            labels.append("品番検索")
         self.context_text.set(" · ".join(labels))
 
     def _schedule_filter(self, *_args):
@@ -580,7 +584,15 @@ class MainWindow(ttk.Frame):
         self.progress_bar = ttk.Progressbar(bar, mode="indeterminate", length=180)
         self.progress_bar.pack(side="left")
         ttk.Label(bar, textvariable=self._progress_text).pack(side="left", padx=10)
-        ttk.Label(bar, textvariable=self._status_text, style="Muted.TLabel").pack(side="right")
+        def status_changed(*_args):
+            status.configure(text=self._status_text.get().split(" / 自動保存:", 1)[-1].strip()
+                             if " / 自動保存:" in self._status_text.get()
+                             else ("" if self._status_text.get().startswith(("検索完了", "検索終了", "検索中断"))
+                                   else self._status_text.get()))
+
+        status = ttk.Label(bar, style="Muted.TLabel")
+        status.pack(side="right")
+        self._status_text.trace_add("write", status_changed)
         ttk.Label(bar, text="外部送信なし / ローカル処理", style="Muted.TLabel").pack(side="right", padx=12)
         # Coverage answers "did it look at everything?" and stays on its own
         # line so it never competes with the progress line above.
@@ -1288,11 +1300,13 @@ class MainWindow(ttk.Frame):
 
     def apply_refine(self) -> None:
         self.state.refine_text = self._refine_var.get()
+        self._update_search_context()
         self.start_search()
 
     def clear_refine(self) -> None:
         self._refine_var.set("")
         self.state.refine_text = ""
+        self._update_search_context()
         self.start_search()
 
     # ------------------------------------------------------------ actions
@@ -1463,6 +1477,7 @@ class MainWindow(ttk.Frame):
             self.mode_var.set(self.state.mode)
             self._update_mode_hint()
             self._sync_state()
+            self._update_search_context()
             if not self._startup_pending:
                 self._open_index()
                 self._update_index_label()

@@ -8,6 +8,7 @@ file-level model and only materialises the rows the user can actually see
 from __future__ import annotations
 
 import os
+import re
 import time
 from dataclasses import dataclass
 
@@ -134,6 +135,17 @@ class ResultModel:
         return None
 
 
+_THRESHOLD_LABEL = re.compile(r"^一致:(.*) / 未(?:一致|確認):.*（(\d+/\d+(?:以上)?)）$")
+
+
+def display_match(label: str) -> str:
+    parsed = _THRESHOLD_LABEL.fullmatch(label)
+    if parsed is None:
+        return label
+    words, count = parsed.groups()
+    return f"{words.replace('、', '・')}（{count}）"
+
+
 def values_for(row: Row, ocr_available: bool = True) -> tuple[str, ...]:
     result = row.result
     source = SOURCE_LABELS.get(result.source_type, "?")
@@ -150,7 +162,7 @@ def values_for(row: Row, ocr_available: bool = True) -> tuple[str, ...]:
     return (
         "✓" if row.confirmed else "",
         result.name,
-        " / ".join(result.displays) if result.displays else "",
+        " / ".join(map(display_match, result.displays)),
         f"{result.hit_count}+" if not result.hit_count_exact else str(result.hit_count),
         kind,
         format_time(result.mtime_ns),

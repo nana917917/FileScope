@@ -558,3 +558,48 @@ class TestAcceptance:
         assert "results.csv" in status
         assert str(tmp_path) not in status, "the full session path must not be shown"
         shutdown(window)
+
+
+
+def test_deferred_services_allow_cancel_before_search(tk_root, tmp_path, isolated_paths, monkeypatch):
+    import threading
+
+    from filescope.platform import tesseract
+
+    blocked = threading.Event()
+    entered = threading.Event()
+
+    def probe():
+        entered.set()
+        blocked.wait(4)
+        return tesseract.OcrStatus(False)
+
+    monkeypatch.setattr(tesseract, "probe", probe)
+    settings = Settings()
+    settings.index_enabled = False
+    window = MainWindow(tk_root, settings=settings, defer_services=True)
+    try:
+        tk_root.update()
+        assert entered.wait(1)
+        assert window._startup_pending
+        window.root_var.set(str(tmp_path))
+        window.query_var.set("needle")
+        window.start_search()
+        assert window._queued_search
+        window.cancel_search()
+        blocked.set()
+        pump(tk_root, 0.5)
+        assert not window._startup_pending
+        assert window.session is None
+    finally:
+        blocked.set()
+        shutdown(window)
+
+
+def test_result_threshold_label_keeps_lower_bound():
+    assert results_module.display_match(
+        "一致:680S、DEV / 未確認:温度サイクル（2/3以上）"
+    ) == "680S・DEV（2/3以上）"
+    assert results_module.display_match(
+        "一致:680S、DEV / 未一致:温度サイクル（2/3）"
+    ) == "680S・DEV（2/3）"
