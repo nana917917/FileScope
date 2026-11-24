@@ -72,12 +72,19 @@ PRIMARY_ACTIVE_BG = "#17496b"
 
 
 class MainWindow(ttk.Frame):
-    def __init__(self, master: tk.Tk, *, settings: Settings, ocr_status=None) -> None:
+    def __init__(self, master: tk.Tk, *, settings: Settings, ocr_status=None, defer_services=False) -> None:
         super().__init__(master)
         self.master = master
         self.settings = settings
         self.state = UiState.from_settings(settings)
-        self.ocr_status = ocr_status or tesseract_module.probe()
+        self._startup_pending = defer_services
+        self._queued_search = False
+        self._startup_lock = threading.Lock()
+        self._startup_result = None
+        self._closing = False
+        self.ocr_status = ocr_status or (
+            tesseract_module.OcrStatus(False, message="OCRを確認中") if defer_services else tesseract_module.probe()
+        )
         self.model = results_module.ResultModel()
         self.session: SearchSession | None = None
         self.database: IndexDatabase | None = None
@@ -116,11 +123,70 @@ class MainWindow(ttk.Frame):
         self._rebuild_facets()
         self._build_status()
         self._bind_keys()
-        index_started = time.perf_counter()
-        self._open_index()
-        log.info("startup phase: index_open=%.3fs", time.perf_counter() - index_started)
-        self._update_index_label()
+        if defer_services:
+            self._index_text.set("索引を確認中")
+            self.ocr_label.configure(text="OCRを確認中")
+            self.after_idle(self._start_services)
+        else:
+            self._open_index()
+            self._update_index_label()
         self._drain_job = self.after(DRAIN_MS, self._drain_events)
+
+    def _start_services(self) -> None:
+        max_bytes = self.settings.index_max_bytes if self.settings.index_enabled else 0
+
+        def prepare():
+            database = None
+            error = ""
+            started = time.perf_counter()
+            ocr = tesseract_module.OcrStatus(False, message="OCR確認に失敗しました")
+            try:
+                ocr = tesseract_module.probe()
+            except Exception:
+                log.warning("startup OCR probe failed")
+            ocr_time = time.perf_counter()
+            status = None
+            try:
+                if max_bytes > 0:
+                    database = IndexDatabase(paths.index_path(), max_bytes=max_bytes)
+                    status = database.status()
+            except Exception as exc:
+                error = type(exc).__name__
+            with self._startup_lock:
+                if self._closing:
+                    if database is not None:
+                        database.close()
+                    return
+                self._startup_result = ocr, database, status, error, max_bytes
+            log.info("startup services: ocr=%.3fs index=%.3fs", ocr_time - started, time.perf_counter() - ocr_time)
+            purge_stale()
+
+        threading.Thread(target=prepare, daemon=True, name="filescope-startup").start()
+
+    def _apply_startup_result(self) -> None:
+        with self._startup_lock:
+            result = self._startup_result
+            self._startup_result = None
+        if result is None:
+            return
+        self.ocr_status, self.database, status, error, prepared_size = result
+        current_size = self.settings.index_max_bytes if self.settings.index_enabled else 0
+        if prepared_size != current_size:
+            if self.database is not None:
+                self.database.close()
+                self.database = None
+            self._start_services()
+            return
+        self._startup_pending = False
+        self.settings.index_disabled_reason = error
+        self.ocr_label.configure(text=f"OCR: {self.ocr_status.language_expression or '未導入'}")
+        self._index_text.set(
+            f"索引: {status.files:,}ファイル / {human_size(status.size_bytes)}" if status is not None
+            else ("索引: 確認エラー" if error else "索引: OFF")
+        )
+        if self._queued_search:
+            self._queued_search = False
+            self.after_idle(self.start_search)
 
     # ------------------------------------------------------------- building
     def _build_menu(self) -> None:
@@ -129,18 +195,24 @@ class MainWindow(ttk.Frame):
         file_menu.add_command(label="結果をCSV保存…", command=self.export_csv, accelerator="Ctrl+S")
         file_menu.add_command(label="検索条件をプリセット保存…", command=self.save_preset)
         file_menu.add_separator()
-        file_menu.add_command(label="終了", command=self.master.destroy)
+        file_menu.add_command(label="終了", command=self.on_close)
         menu.add_cascade(label="ファイル", menu=file_menu)
 
-        tools_menu = tk.Menu(menu, tearoff=0)
-        tools_menu.add_command(label="条件を作る…", command=self.open_condition_builder, accelerator="Ctrl+B")
-        tools_menu.add_command(label="詳細設定…", command=self.open_settings, accelerator="Ctrl+D")
-        tools_menu.add_command(label="索引の状態…", command=self.open_index_status, accelerator="Ctrl+I")
-        tools_menu.add_command(label="診断情報…", command=self.open_diagnostics)
-        tools_menu.add_separator()
-        tools_menu.add_command(label="プリセット…", command=self.open_presets)
-        tools_menu.add_command(label="検索履歴…", command=self.open_history)
-        menu.add_cascade(label="ツール", menu=tools_menu)
+        search = tk.Menu(menu, tearoff=False)
+        search.add_command(label="検索履歴…", command=self.open_history)
+        search.add_command(label="プリセット…", command=self.open_presets)
+        search.add_command(label="追加条件（本文も再検索）", command=lambda: self._toggle_section(self.refine_frame, before=self.facet_frame))
+        menu.add_cascade(label="検索", menu=search)
+
+        appearance = tk.Menu(menu, tearoff=False)
+        appearance.add_command(label="テーマと表示密度…", command=self.open_appearance)
+        menu.add_cascade(label="表示", menu=appearance)
+
+        settings = tk.Menu(menu, tearoff=False)
+        settings.add_command(label="詳細設定…", command=self.open_settings, accelerator="Ctrl+D")
+        settings.add_command(label="索引の状態…", command=self.open_index_status, accelerator="Ctrl+I")
+        settings.add_command(label="診断情報…", command=self.open_diagnostics)
+        menu.add_cascade(label="設定", menu=settings)
 
         help_menu = tk.Menu(menu, tearoff=0)
         help_menu.add_command(label="キーボードショートカット", command=self.open_shortcuts)
@@ -162,7 +234,7 @@ class MainWindow(ttk.Frame):
         with suppress(tk.TclError):
             style.configure("Sash", sashthickness=8, gripcount=0)
 
-        form = ttk.Frame(self, padding=(8, 6, 8, 2))
+        form = ttk.Frame(self, padding=(14, 9, 14, 3))
         form.pack(fill="x")
         form.columnconfigure(1, weight=1)
 
@@ -205,21 +277,13 @@ class MainWindow(ttk.Frame):
         )
         self.search_button.grid(row=1, column=2, sticky="e", padx=(8, 0), pady=(FORM_PAD_Y, 0))
 
-        ttk.Label(form, text="除外（この語を含む資料は除く）").grid(
-            row=2, column=0, sticky="w", padx=(0, 6), pady=(FORM_PAD_Y, 0)
-        )
+        self.advanced_search = ttk.Frame(self, padding=(14, 4))
+        self.advanced_search.columnconfigure(1, weight=1)
+        ttk.Label(self.advanced_search, text="除外語").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.exclude_var = tk.StringVar(value=self.state.exclude_query)
-        ttk.Entry(form, textvariable=self.exclude_var, font=self.body_font).grid(
-            row=2, column=1, sticky="ew", pady=(FORM_PAD_Y, 0)
-        )
-        ttk.Label(form, text="カンマ区切りも可", foreground="#666").grid(
-            row=2, column=2, sticky="w", padx=(8, 0), pady=(FORM_PAD_Y, 0)
-        )
-
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8, pady=(6, 2))
-
-        mode_row = ttk.Frame(self, padding=(8, 2, 8, 0))
-        mode_row.pack(fill="x")
+        ttk.Entry(self.advanced_search, textvariable=self.exclude_var).grid(row=0, column=1, sticky="ew")
+        mode_row = ttk.Frame(self.advanced_search)
+        mode_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self.mode_var = tk.StringVar(value=self.state.mode)
         mode_frame = ttk.Frame(mode_row)
         mode_frame.pack(side="left")
@@ -232,10 +296,10 @@ class MainWindow(ttk.Frame):
                 variable=self.mode_var,
                 command=self._update_mode_hint,
             ).pack(side="left", padx=(0, 6))
-        self.mode_hint = ttk.Label(mode_row, text=MODE_DESCRIPTIONS[self.state.mode], foreground="#555")
+        self.mode_hint = ttk.Label(mode_row, text=MODE_DESCRIPTIONS[self.state.mode], style="Muted.TLabel")
         self.mode_hint.pack(side="left", padx=12)
 
-        exact = ttk.Frame(self, padding=(8, 2, 8, 2))
+        exact = ttk.Frame(self, padding=(14, 4, 14, 4))
         exact.pack(fill="x")
         self.kind_vars = {
             "excel": tk.BooleanVar(value=self.state.include_excel),
@@ -245,7 +309,7 @@ class MainWindow(ttk.Frame):
             "text": tk.BooleanVar(value=self.state.include_text),
             "unknown": tk.BooleanVar(value=self.state.include_unknown_text),
         }
-        ttk.Label(exact, text="検索対象", font=self.body_bold).pack(side="left", padx=(0, 4))
+        self.search_toolbar = exact
         target = ttk.Menubutton(exact, text="対象形式")
         target_menu = tk.Menu(target, tearoff=False)
         target.configure(menu=target_menu)
@@ -259,30 +323,19 @@ class MainWindow(ttk.Frame):
             ("unknown", "未知形式"),
         ):
             target_menu.add_checkbutton(label=label, variable=self.kind_vars[key])
-        # The dialogs stay on this row but are pushed to the right edge, so the
-        # frequently used 条件… never hides behind them.
-        ttk.Separator(exact, orient="vertical").pack(side="left", fill="y", padx=10, pady=2)
-        ttk.Button(exact, text="条件…", width=7, command=self.open_condition_builder).pack(side="left", padx=4)
-        ttk.Button(exact, text="詳細設定…", width=10, command=self.open_settings).pack(side="left", padx=4)
-        maintenance = ttk.Menubutton(exact, text="メンテナンス")
-        menu = tk.Menu(maintenance, tearoff=False)
-        menu.add_command(label="索引…", command=self.open_index_status)
-        menu.add_command(label="診断…", command=self.open_diagnostics)
-        maintenance.configure(menu=menu)
-        maintenance.pack(side="left", padx=4)
-
-        actions = ttk.Frame(self, padding=(8, 0, 8, 2))
-        actions.pack(fill="x")
-        self.cancel_button = ttk.Button(actions, text="中断", width=7, command=self.cancel_search, state="disabled")
-        self.cancel_button.pack(side="left", padx=(0, 4))
-        self.pause_button = ttk.Button(
-            actions, text="一時停止", width=8, command=self.toggle_pause, state="disabled"
-        )
+        ttk.Button(exact, text="条件を作る…", command=self.open_condition_builder).pack(side="left", padx=4)
+        ttk.Button(exact, text="検索オプション", command=lambda: self._toggle_section(
+            self.advanced_search, before=self.search_toolbar)).pack(side="left", padx=4)
+        self.cancel_button = ttk.Button(exact, text="中断", command=self.cancel_search, state="disabled")
+        self.cancel_button.pack(side="left", padx=4)
+        self.pause_button = ttk.Button(exact, text="一時停止", command=self.toggle_pause, state="disabled")
         self.pause_button.pack(side="left", padx=4)
-        ttk.Separator(actions, orient="vertical").pack(side="left", fill="y", padx=10, pady=2)
-        ttk.Button(actions, text="プリセット", width=10, command=self.open_presets).pack(side="left", padx=4)
-        ttk.Button(actions, text="履歴", width=7, command=self.open_history).pack(side="left", padx=4)
-        ttk.Button(actions, text="CSV保存", width=9, command=self.export_csv).pack(side="right")
+        self.context_text = tk.StringVar()
+        ttk.Label(exact, textvariable=self.context_text, style="Muted.TLabel").pack(side="left", padx=8)
+        for variable in (self.mode_var, self.exclude_var, self._refine_var):
+            variable.trace_add("write", self._update_search_context)
+        self._update_search_context()
+        actions = exact
         self.ocr_label = ttk.Label(
             actions,
             text=(
@@ -290,11 +343,70 @@ class MainWindow(ttk.Frame):
                 if self.ocr_status.ready
                 else "OCR: 未導入（クリックで診断）"
             ),
-            foreground="#555" if self.ocr_status.ready else "#8a6d3b",
+            style="Muted.TLabel" if self.ocr_status.ready else "#8a6d3b",
         )
         self.ocr_label.pack(side="right", padx=10)
         self.ocr_label.bind("<Button-1>", lambda _e: self.open_diagnostics())
-        ttk.Label(actions, textvariable=self._index_text, foreground="#555").pack(side="right", padx=6)
+        ttk.Label(actions, textvariable=self._index_text, style="Muted.TLabel").pack(side="right", padx=6)
+
+    @staticmethod
+    def _toggle_section(frame, *, before=None):
+        if frame.winfo_manager():
+            frame.pack_forget()
+        elif before is not None:
+            frame.pack(fill="x", before=before, pady=(0, 4))
+        else:
+            frame.pack(fill="x")
+
+    def _update_search_context(self, *_args):
+        labels = [MODE_LABELS.get(self.mode_var.get(), self.mode_var.get())]
+        if self.exclude_var.get().strip():
+            labels.append("除外語あり")
+        if self._refine_var.get().strip():
+            labels.append("追加条件あり")
+        self.context_text.set(" · ".join(labels))
+
+    def _schedule_filter(self, *_args):
+        if self._filter_job is not None:
+            self.after_cancel(self._filter_job)
+
+        def apply():
+            self._filter_job = None
+            self._render_results()
+
+        self._filter_job = self.after(160, apply)
+
+    def open_appearance(self):
+        from .tk_light import THEMES, apply_theme
+
+        dialog = dialogs.Dialog(self.master, "テーマと表示密度", width=410, height=230)
+        body = ttk.Frame(dialog, padding=18)
+        body.pack(fill="both", expand=True)
+        theme = tk.StringVar(value=THEMES.get(self.settings.theme, "ライト"))
+        compact = tk.BooleanVar(value=bool(self.settings.window.get("compact_rows", 0)))
+        size = tk.IntVar(value=_bounded_layout_value(self.settings, "font_size", 10, 9, 16))
+        ttk.Label(body, text="テーマ").grid(row=0, column=0, sticky="w", padx=(0, 14), pady=5)
+        ttk.Combobox(body, values=tuple(THEMES.values()), textvariable=theme, state="readonly").grid(row=0, column=1)
+        ttk.Label(body, text="文字サイズ").grid(row=1, column=0, sticky="w", pady=5)
+        ttk.Spinbox(body, from_=9, to=16, textvariable=size, width=6).grid(row=1, column=1, sticky="w")
+        ttk.Checkbutton(body, text="一覧をコンパクトにする", variable=compact).grid(row=2, column=1, sticky="w", pady=5)
+
+        def accept():
+            try:
+                font_size = max(9, min(16, size.get()))
+            except tk.TclError:
+                font_size = 10
+            self.settings.theme = next(key for key, value in THEMES.items() if value == theme.get())
+            self.settings.window["font_size"] = font_size
+            self.settings.window["compact_rows"] = int(compact.get())
+            self.settings.save()
+            apply_theme(self.master, self.settings.theme, size=font_size, compact=compact.get())
+            self._apply_result_colors()
+            self._fill_window(self._window_start)
+            dialog._close(True)
+
+        ttk.Button(body, text="適用", command=accept).grid(row=3, column=1, sticky="e", pady=12)
+        dialog.show()
 
     def _build_body(self) -> None:
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=8, pady=(4, 0))
@@ -313,22 +425,19 @@ class MainWindow(ttk.Frame):
         body.add(left, weight=3)
         body.add(right_edge, weight=2)
 
-        refine = ttk.Frame(left)
-        refine.pack(fill="x", pady=(0, 4))
-        ttk.Label(refine, text="検索2（検索1とAND）").pack(side="left")
-        entry = ttk.Entry(refine, textvariable=self._refine_var)
+        results_bar = ttk.Frame(left)
+        results_bar.pack(fill="x", pady=(0, 4))
+        ttk.Label(results_bar, text="検索結果", font=self.body_bold).pack(side="left")
+        ttk.Label(results_bar, textvariable=self._result_count_text, style="Muted.TLabel").pack(side="left", padx=8)
+        self.refine_frame = ttk.Frame(left)
+        ttk.Label(self.refine_frame, text="追加条件（本文も再検索）").pack(side="left")
+        entry = ttk.Entry(self.refine_frame, textvariable=self._refine_var)
         entry.pack(side="left", fill="x", expand=True, padx=6)
         entry.bind("<Return>", lambda _event: self.apply_refine())
-        ttk.Button(refine, text="再検索", command=self.apply_refine).pack(side="left")
-        ttk.Button(refine, text="解除", command=self.clear_refine).pack(side="left", padx=4)
-        ttk.Label(refine, textvariable=self._result_count_text, foreground="#555").pack(side="left", padx=6)
-        ttk.Label(
-            left,
-            text="同じ検索場所を検索し直します。検索2は検索1と両方含むファイルを探します。",
-            foreground="#666",
-        ).pack(anchor="w", pady=(0, 3))
+        ttk.Button(self.refine_frame, text="再検索", command=self.apply_refine).pack(side="left")
+        ttk.Button(self.refine_frame, text="解除", command=self.clear_refine).pack(side="left", padx=4)
 
-        self.facet_frame = ttk.LabelFrame(left, text="絞り込み（クリックで適用）", padding=4)
+        self.facet_frame = ttk.LabelFrame(left, text="結果の絞り込み", padding=4)
         self.facet_frame.pack(fill="x", pady=(0, 4))
         self.facet_inner = ttk.Frame(self.facet_frame)
         self.facet_inner.pack(fill="x")
@@ -350,11 +459,16 @@ class MainWindow(ttk.Frame):
                 variable=var,
                 command=lambda value=kind: self._toggle_facet("kind", value),
             )
+        self.path_filter = tk.StringVar()
+        ttk.Label(self.facet_inner, text="名前・パス").pack(side="left", padx=(5, 2))
+        ttk.Entry(self.facet_inner, textvariable=self.path_filter, width=13).pack(side="left", padx=(0, 4))
+        self._filter_job = None
+        self.path_filter.trace_add("write", self._schedule_filter)
         self.source_facet_frame = ttk.Frame(self.facet_inner)
         self.source_facet_frame.pack(side="left", fill="x", expand=True)
         ttk.Button(self.facet_inner, text="解除", command=self.clear_facets).pack(side="right", padx=6)
 
-        column_button = ttk.Menubutton(refine, text="列表示")
+        column_button = ttk.Menubutton(results_bar, text="列表示")
         column_button.pack(side="right", padx=4)
         column_menu = tk.Menu(column_button, tearoff=False)
         column_button.configure(menu=column_menu)
@@ -381,12 +495,11 @@ class MainWindow(ttk.Frame):
         for key, label, width in results_module.COLUMNS:
             self.tree.heading(key, text=label, command=lambda column=key: self.sort_by(column))
             if getattr(self.winfo_toplevel(), "filescope_light", False):
-                width = {"name": 260, "path": 155}.get(key, width)
+                width = {"name": 250, "displays": 170, "path": 145}.get(key, width)
             saved_width = _bounded_layout_value(self.settings, f"column_{key}", width, 24, 2000)
             self.tree.column(key, width=saved_width, anchor="w", stretch=(key in ("name", "path")))
         self._update_columns()
-        for tag, options in results_module.TAGS.items():
-            self.tree.tag_configure(tag, **options)
+        self._apply_result_colors()
 
         self.scrollbar = ttk.Scrollbar(tree_area, orient="vertical", command=self._on_scroll)
         self.hscrollbar = ttk.Scrollbar(tree_area, orient="horizontal", command=self.tree.xview)
@@ -408,6 +521,9 @@ class MainWindow(ttk.Frame):
         self.tree.bind("<Down>", lambda _event: self._move_selection(1))
         self.tree.bind("<Configure>", self._on_tree_configure)
 
+        self.issue_summary = tk.StringVar(value="問題・未検索 0件")
+        ttk.Button(left, textvariable=self.issue_summary,
+                   command=lambda: self._toggle_section(self.issues_frame)).pack(anchor="w", pady=(4, 0))
         issues_frame = ttk.LabelFrame(left, text="問題 / 未検索", padding=4)
         self.issues_frame = issues_frame
         self.issue_tree = ttk.Treeview(
@@ -428,7 +544,7 @@ class MainWindow(ttk.Frame):
         self.issue_tree.bind("<Double-1>", lambda _event: self._open_issue_file())
         self.issue_tree.bind("<Button-3>", self._show_issue_context_menu)
 
-        self.preview = PreviewPane(right)
+        self.preview = PreviewPane(right, on_open=self.open_selected)
         self.preview.pack(fill="both", expand=True)
         # Without an explicit sash position the result pane (whose requested
         # width is the sum of its columns) can squeeze the preview to zero width.
@@ -464,11 +580,11 @@ class MainWindow(ttk.Frame):
         self.progress_bar = ttk.Progressbar(bar, mode="indeterminate", length=180)
         self.progress_bar.pack(side="left")
         ttk.Label(bar, textvariable=self._progress_text).pack(side="left", padx=10)
-        ttk.Label(bar, textvariable=self._status_text, foreground="#555").pack(side="right")
-        ttk.Label(bar, text="外部送信なし / ローカル処理", foreground="#777").pack(side="right", padx=12)
+        ttk.Label(bar, textvariable=self._status_text, style="Muted.TLabel").pack(side="right")
+        ttk.Label(bar, text="外部送信なし / ローカル処理", style="Muted.TLabel").pack(side="right", padx=12)
         # Coverage answers "did it look at everything?" and stays on its own
         # line so it never competes with the progress line above.
-        ttk.Label(self, textvariable=self._coverage_text, foreground="#555", padding=(8, 0, 8, 4)).pack(
+        ttk.Label(self, textvariable=self._coverage_text, style="Muted.TLabel", padding=(8, 0, 8, 4)).pack(
             anchor="w"
         )
 
@@ -513,6 +629,11 @@ class MainWindow(ttk.Frame):
         if not self.state.combined_query().strip():
             messagebox.showinfo("検索条件", "検索語またはメタ条件を指定してください。")
             return
+        if self._startup_pending:
+            self._queued_search = True
+            self._progress_text.set("検索準備中 · OCRと索引を確認しています")
+            self.cancel_button.configure(state="normal")
+            return
         if self.session is not None and not self.session.finished:
             self.session.cancel()
 
@@ -553,6 +674,11 @@ class MainWindow(ttk.Frame):
         self._drain_events()
 
     def cancel_search(self) -> None:
+        if self._queued_search:
+            self._queued_search = False
+            self._progress_text.set("検索中断")
+            self.cancel_button.configure(state="disabled")
+            return
         if self.session is not None:
             self.session.cancel()
             self._progress_text.set("中断処理中…")
@@ -579,7 +705,9 @@ class MainWindow(ttk.Frame):
 
     # -------------------------------------------------------------- events
     def _drain_events(self) -> None:
-        """Coalesced UI update: at most one redraw per interval (spec section 50)."""
+        """Coalesce UI updates while draining backend events."""
+        if self._startup_pending:
+            self._apply_startup_result()
         session = self.session
         needs_render = False
         if session is not None:
@@ -739,13 +867,10 @@ class MainWindow(ttk.Frame):
         self._status_text.set(message)
 
     def _add_issue(self, issue) -> None:
-        if self._issue_rows >= MAX_ISSUE_ROWS:
-            return
-        if not self.issues_frame.winfo_ismapped():
-            # The panel only appears when there is something to report, so an
-            # ordinary search keeps the whole window for results.
-            self.issues_frame.pack(fill="x", pady=(4, 0))
         self._issue_rows += 1
+        self.issue_summary.set(f"問題・未検索 {self._issue_rows:,}件")
+        if self._issue_rows > MAX_ISSUE_ROWS:
+            return
         self.issue_tree.insert(
             "",
             "end",
@@ -757,6 +882,7 @@ class MainWindow(ttk.Frame):
         for item in self.issue_tree.get_children():
             self.issue_tree.delete(item)
         self._issue_rows = 0
+        self.issue_summary.set("問題・未検索 0件")
         self.issues_frame.pack_forget()
 
     # ------------------------------------------------------------- results
@@ -770,8 +896,20 @@ class MainWindow(ttk.Frame):
         for key, var in self._column_vars.items():
             self.settings.window[f"show_column_{key}"] = int(var.get())
 
+    def _apply_result_colors(self):
+        dark = self.settings.theme == "dark"
+        for tag, options in results_module.TAGS.items():
+            colors = dict(options)
+            if dark and tag == "odd":
+                colors["background"] = "#202733"
+            if dark and tag in ("confirmed", "ocr"):
+                colors["foreground"] = "#b7c9de"
+            self.tree.tag_configure(tag, **colors)
+
     def _visible_rows(self) -> list:
-        return apply_filters(self.model.all_rows, self.state, self.settings.confirmed_set())
+        rows = apply_filters(self.model.all_rows, self.state, self.settings.confirmed_set())
+        word = self.path_filter.get().strip().casefold()
+        return [row for row in rows if word in row.result.path.casefold()] if word else rows
 
     def _render_results(self) -> None:
         self._last_render_at = time.perf_counter()
@@ -1136,6 +1274,7 @@ class MainWindow(ttk.Frame):
         self._render_results()
 
     def clear_facets(self) -> None:
+        self.path_filter.set("")
         self.state.facet_kinds.clear()
         self.state.facet_sources.clear()
         self.state.facet_ocr = False
@@ -1324,8 +1463,9 @@ class MainWindow(ttk.Frame):
             self.mode_var.set(self.state.mode)
             self._update_mode_hint()
             self._sync_state()
-            self._open_index()
-            self._update_index_label()
+            if not self._startup_pending:
+                self._open_index()
+                self._update_index_label()
 
     def open_index_status(self) -> None:
         dialogs.IndexStatusDialog(self.master, database=self.database, roots=(self.state.root,)).show()
@@ -1496,6 +1636,12 @@ class MainWindow(ttk.Frame):
         )
 
     def on_close(self) -> None:
+        with self._startup_lock:
+            self._closing = True
+            startup_result = self._startup_result
+            self._startup_result = None
+        if startup_result is not None and startup_result[1] is not None:
+            startup_result[1].close()
         try:
             # Cancel the timer callbacks first: a pending `after` firing after
             # destroy() prints Tcl "invalid command name" noise.
@@ -1521,7 +1667,6 @@ class MainWindow(ttk.Frame):
             if self.database is not None:
                 self.database.close()
             self.ocr_cache.close()
-            purge_stale()
         finally:
             self.master.destroy()
 

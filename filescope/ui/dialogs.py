@@ -115,7 +115,7 @@ class ConditionBuilderDialog(Dialog):
         ttk.Spinbox(count_row, from_=1, to=20, width=3, textvariable=self.count_var).pack(side="left", padx=4)
         ttk.Label(count_row, text="個以上").pack(side="left")
         self.threshold_var = tk.StringVar(value="例：3つのうち2つ以上")
-        ttk.Label(n_frame, textvariable=self.threshold_var, foreground="#666").pack(anchor="w")
+        ttk.Label(n_frame, textvariable=self.threshold_var, style="Muted.TLabel").pack(anchor="w")
         self.n_of = tk.Text(n_frame, height=3, width=24, wrap="word")
         self.n_of.pack(fill="x", pady=(4, 0))
 
@@ -133,7 +133,7 @@ class ConditionBuilderDialog(Dialog):
         self.near_distance = ttk.Entry(near_row, width=4)
         self.near_distance.pack(side="left", padx=(6, 2))
         ttk.Label(near_row, text="文字以内").pack(side="left")
-        ttk.Label(near_frame, text="同じセル・ページ内で近くにある資料", foreground="#666").pack(anchor="w")
+        ttk.Label(near_frame, text="同じセル・ページ内で近くにある資料", style="Muted.TLabel").pack(anchor="w")
 
         self._build_file_conditions(body, groups)
         self._build_advanced(body, groups)
@@ -145,7 +145,7 @@ class ConditionBuilderDialog(Dialog):
         self.preview_var = tk.StringVar(value="")
         ttk.Entry(body, textvariable=self.preview_var, state="readonly").pack(fill="x")
         self.error_var = tk.StringVar(value="")
-        ttk.Label(body, textvariable=self.error_var, foreground="#a94442").pack(anchor="w")
+        ttk.Label(body, textvariable=self.error_var, style="Error.TLabel").pack(anchor="w")
 
         buttons = ttk.Frame(body)
         buttons.pack(fill="x", pady=(6, 0))
@@ -168,14 +168,14 @@ class ConditionBuilderDialog(Dialog):
         # stay inside the dialog; the widget stretches with fill="x" anyway.
         widget = tk.Text(parent, height=height, width=28, wrap="word")
         widget.pack(fill="x")
-        ttk.Label(parent, text=hint, foreground="#666").pack(anchor="w")
+        ttk.Label(parent, text=hint, style="Muted.TLabel").pack(anchor="w")
         return widget
 
     def _entry(self, parent, label: str, hint: str) -> ttk.Entry:
         ttk.Label(parent, text=label, font=("", 9, "bold")).pack(anchor="w", pady=(6, 0))
         entry = ttk.Entry(parent)
         entry.pack(fill="x")
-        ttk.Label(parent, text=hint, foreground="#666").pack(anchor="w")
+        ttk.Label(parent, text=hint, style="Muted.TLabel").pack(anchor="w")
         return entry
 
     def _build_file_conditions(self, parent, groups: BuilderGroups) -> None:
@@ -249,7 +249,7 @@ class ConditionBuilderDialog(Dialog):
         ttk.Label(
             self.advanced_body,
             text="ここに書いた式はそのまま検索式として使われます（上の欄と AND で結合）。",
-            foreground="#666",
+            style="Muted.TLabel",
         ).pack(anchor="w")
         self.advanced = tk.Text(self.advanced_body, height=2, width=40, wrap="word")
         self.advanced.pack(fill="x")
@@ -573,7 +573,7 @@ class AdvancedSettingsDialog(Dialog):
                 mode_frame, text=_mode_label(mode), value=mode, variable=self.mode_var
             ).pack(side="left", padx=3)
         row += 1
-        ttk.Label(body, text=MODE_DESCRIPTIONS["standard"], wraplength=520, foreground="#555").grid(
+        ttk.Label(body, text=MODE_DESCRIPTIONS["standard"], wraplength=520, style="Muted.TLabel").grid(
             row=row, column=1, sticky="w", pady=(0, 8)
         )
         row += 1
@@ -588,7 +588,7 @@ class AdvancedSettingsDialog(Dialog):
             [(key, label) for key, label in OCR_MODE_LABELS.items()],
         )
         row += 1
-        ttk.Label(body, text=ocr_message, foreground="#555", wraplength=520).grid(row=row, column=1, sticky="w")
+        ttk.Label(body, text=ocr_message, style="Muted.TLabel", wraplength=520).grid(row=row, column=1, sticky="w")
         row += 1
         self._radio_row(
             body,
@@ -631,7 +631,7 @@ class AdvancedSettingsDialog(Dialog):
         ttk.Label(
             body,
             text="容量上限に達しても古い索引は削除しません（新規作成のみ停止します）。",
-            foreground="#555",
+            style="Muted.TLabel",
         ).grid(row=row, column=1, sticky="w")
         row += 1
 
@@ -651,7 +651,7 @@ class AdvancedSettingsDialog(Dialog):
         ttk.Label(
             body,
             text=f"設定ファイル: {paths.settings_path()}",
-            foreground="#777",
+            style="Muted.TLabel",
             wraplength=520,
         ).grid(row=row + 1, column=0, columnspan=2, sticky="w")
 

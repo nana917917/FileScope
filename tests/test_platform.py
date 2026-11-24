@@ -95,12 +95,13 @@ class TestTesseractDiscovery:
         monkeypatch.setenv("TESSERACT_CMD", str(exe))
         module = types.ModuleType("pytesseract")
         module.pytesseract = types.SimpleNamespace(tesseract_cmd="")
-        module.get_languages = lambda config="": ["eng", "jpn", "osd"]
         monkeypatch.setitem(sys.modules, "pytesseract", module)
         monkeypatch.setattr(
             tesseract_module.subprocess,
             "run",
-            lambda *a, **k: types.SimpleNamespace(stdout="tesseract v5.5.0\n", returncode=0),
+            lambda args, **k: types.SimpleNamespace(stdout=(
+                "List of available languages (3):\neng\njpn\nosd\n" if args[-1] == "--list-langs" else "tesseract v5.5.0\n"
+            ), returncode=0),
         )
         status = tesseract_module.probe()
         assert status.ready
@@ -116,12 +117,13 @@ class TestTesseractDiscovery:
         monkeypatch.setenv("TESSERACT_CMD", str(exe))
         module = types.ModuleType("pytesseract")
         module.pytesseract = types.SimpleNamespace(tesseract_cmd="")
-        module.get_languages = lambda config="": ["eng"]
         monkeypatch.setitem(sys.modules, "pytesseract", module)
         monkeypatch.setattr(
             tesseract_module.subprocess,
             "run",
-            lambda *a, **k: types.SimpleNamespace(stdout="", returncode=0),
+            lambda args, **k: types.SimpleNamespace(stdout=(
+                "List of available languages (1):\neng\n" if args[-1] == "--list-langs" else ""
+            ), returncode=0),
         )
         status = tesseract_module.probe()
         assert status.ready and status.language_expression == "eng"

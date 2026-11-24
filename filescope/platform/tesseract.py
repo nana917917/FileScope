@@ -101,15 +101,20 @@ def probe() -> OcrStatus:
     version = ""
     try:
         completed = subprocess.run(
-            [executable, "--version"], capture_output=True, text=True, timeout=10, check=False
+            [executable, "--version"], capture_output=True, text=True, timeout=5, check=False,
+            encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         version = completed.stdout.splitlines()[0].strip() if completed.stdout else ""
     except (OSError, subprocess.SubprocessError) as exc:
         log.debug("tesseract --version failed: %s", exc)
 
     try:
-        languages = tuple(sorted(pytesseract.get_languages(config="")))
-    except Exception as exc:  # pytesseract raises its own TesseractError
+        completed = subprocess.run(
+            [executable, "--list-langs"], capture_output=True, text=True, timeout=5, check=True,
+            encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        languages = tuple(sorted(line.strip() for line in completed.stdout.splitlines()[1:] if line.strip()))
+    except (OSError, subprocess.SubprocessError) as exc:
         return OcrStatus(False, executable, (), version, f"OCR確認エラー: {type(exc).__name__}")
 
     if "jpn" in languages and "eng" in languages:

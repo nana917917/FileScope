@@ -9,7 +9,6 @@ import sys
 import threading
 import time
 import traceback
-from contextlib import suppress
 
 from . import paths
 from .config import Settings
@@ -23,11 +22,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    settings_started = time.perf_counter()
     settings = Settings.load()
+    settings_seconds = time.perf_counter() - settings_started
     if args.log_level:
         settings.log_level = args.log_level
     setup_logging(settings.log_level)
     install_crash_handler()
+    log.info("startup settings=%.3fs", settings_seconds)
 
     if args.diagnostics:
         from . import diagnostics
@@ -49,14 +51,6 @@ def main(argv: list[str] | None = None) -> int:
         return selftest_main(argv)
     if args.search:
         return run_headless_search(args)
-    if not args.classic_ui and (args.qt_ui or args.gui_ready):
-        try:
-            from .ui.qt_window import run
-        except ModuleNotFoundError as exc:
-            if exc.name != "PySide6" or args.gui_ready:
-                raise
-        else:
-            return run(settings, report=args.gui_ready, smoke_root=args.gui_smoke_root)
     return run_gui(settings, report=args.tk_ready)
 
 
@@ -78,10 +72,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", help="also write the JSON/report to this file")
     parser.add_argument("--limit", type=int, default=0, help="limit printed results")
     parser.add_argument("--log-level", default="", help="DEBUG / INFO / WARNING")
-    parser.add_argument("--classic-ui", action="store_true", help="start the previous Tk interface")
-    parser.add_argument("--qt-ui", action="store_true", help="start the comparison Qt interface")
-    parser.add_argument("--gui-ready", default="", help=argparse.SUPPRESS)
-    parser.add_argument("--gui-smoke-root", default="", help=argparse.SUPPRESS)
     parser.add_argument("--tk-ready", default="", help=argparse.SUPPRESS)
     return parser
 
@@ -93,41 +83,21 @@ def run_gui(settings: Settings, *, report="") -> int:
     started = time.perf_counter()
     import tkinter as tk
 
-    from .platform import tesseract as tesseract_module
-    from .platform.tempfiles import purge_stale
-    from .ui.main_window import MainWindow
+    from .ui.main_window import MainWindow, _bounded_layout_value
+    from .ui.tk_light import apply_theme
 
-    imported_at = time.perf_counter()
-
-    purge_stale()
-    purged_at = time.perf_counter()
-    ocr_status = tesseract_module.probe()
-    probed_at = time.perf_counter()
-    log.info(
-        "startup phases: ui_import=%.3fs temp_cleanup=%.3fs ocr_probe=%.3fs",
-        imported_at - started,
-        purged_at - imported_at,
-        probed_at - purged_at,
-    )
-    log.info("starting FileScope %s (OCR: %s)", __version__, ocr_status.message or "unknown")
-
+    imported = time.perf_counter()
     root = tk.Tk()
-    from .ui.tk_light import apply_light
-
-    if settings.theme != "dark":
-        apply_light(root)
+    apply_theme(root, settings.theme, size=_bounded_layout_value(settings, "font_size", 10, 9, 16),
+                compact=bool(settings.window.get("compact_rows", 0)))
     root.title(f"FileScope {__version__}")
     root.geometry(settings.window.get("geometry", "1280x820"))
     root.minsize(900, 600)
-    if settings.theme == "dark":
-        with suppress(tk.TclError):
-            root.tk.call("ttk::style", "theme", "use", "clam")
-
-    window = MainWindow(root, settings=settings, ocr_status=ocr_status)
+    window = MainWindow(root, settings=settings, defer_services=True)
     root.protocol("WM_DELETE_WINDOW", window.on_close)
 
     def log_first_idle() -> None:
-        log.info("startup ready: first_ui_idle=%.3fs", time.perf_counter() - started)
+        log.info("startup ready: imports=%.3fs first_ui_idle=%.3fs", imported - started, time.perf_counter() - started)
 
     root.after_idle(log_first_idle)
     if report:

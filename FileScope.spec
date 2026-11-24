@@ -35,13 +35,9 @@ analysis = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["pytest", "ruff", "xlwt"],
+    excludes=["pytest", "ruff", "xlwt", "PySide6", "shiboken6"],
     cipher=block_cipher,
 )
-# The preview uses raster Qt Widgets and PDFium. No OpenGL contexts are created.
-analysis.binaries = [
-    item for item in analysis.binaries if Path(item[0]).name.lower() != "opengl32sw.dll"
-]
 pyz = PYZ(analysis.pure)
 
 exe = EXE(

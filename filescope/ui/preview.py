@@ -42,7 +42,7 @@ class PreviewContent:
 
 
 class PreviewPane(ttk.Frame):
-    def __init__(self, master, *, on_status=None) -> None:
+    def __init__(self, master, *, on_status=None, on_open=None) -> None:
         super().__init__(master)
         self.on_status = on_status
         self._cache: OrderedDict[tuple, PreviewContent] = OrderedDict()
@@ -63,6 +63,7 @@ class PreviewPane(ttk.Frame):
         self._photo = None
         self._page_job = 0
 
+        self._on_open = on_open
         self._build_header()
         self._build_view_switch()
         self._build_text_view()
@@ -76,12 +77,14 @@ class PreviewPane(ttk.Frame):
         header.pack(fill="x", padx=4, pady=(4, 2))
         self.title_var = tk.StringVar(value="プレビュー")
         ttk.Label(header, textvariable=self.title_var, font=("", 10, "bold")).pack(side="left", anchor="w")
+        if self._on_open is not None:
+            ttk.Button(header, text="原本を開く", command=self._on_open).pack(side="right", padx=2)
         self.match_var = tk.StringVar(value="")
         ttk.Button(header, text="次の一致 ▶", width=11, command=lambda: self.step(1)).pack(side="right", padx=2)
         ttk.Button(header, text="◀ 前の一致", width=11, command=lambda: self.step(-1)).pack(side="right")
-        ttk.Label(header, textvariable=self.match_var, foreground="#555").pack(side="right", padx=6)
+        ttk.Label(header, textvariable=self.match_var, style="Muted.TLabel").pack(side="right", padx=6)
         self.info_var = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.info_var, foreground="#666").pack(anchor="w", padx=5)
+        ttk.Label(self, textvariable=self.info_var, style="Muted.TLabel").pack(anchor="w", padx=5)
 
     def _build_view_switch(self) -> None:
         self.view_bar = ttk.Frame(self)
@@ -104,7 +107,7 @@ class PreviewPane(ttk.Frame):
         )
         ttk.Button(self.view_bar, text="縮小", width=5, command=lambda: self.change_zoom(-1)).pack(side="left")
         self.zoom_var = tk.StringVar(value="")
-        ttk.Label(self.view_bar, textvariable=self.zoom_var, foreground="#666").pack(side="left", padx=4)
+        ttk.Label(self.view_bar, textvariable=self.zoom_var, style="Muted.TLabel").pack(side="left", padx=4)
         self.view_bar.pack_forget()          # only shown for documents with pages
 
     def _build_text_view(self) -> None:
@@ -117,14 +120,14 @@ class PreviewPane(ttk.Frame):
         self.text.configure(yscrollcommand=scroll.set, state="disabled")
         self.text.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
-        self.text.tag_configure("hit", background="#ffe680")
-        self.text.tag_configure("current", background="#ffb347")
+        self.text.tag_configure("hit", background="#ffe680", foreground="#202020")
+        self.text.tag_configure("current", background="#ffb347", foreground="#202020")
         self.text.tag_configure("location", foreground="#0b6b3a", font=("Consolas", 9, "bold"))
         self.text.tag_configure("note", foreground="#777777")
 
     def _build_image_view(self) -> None:
         self.image_frame = ttk.Frame(self)
-        self.canvas = tk.Canvas(self.image_frame, background="#f3f3f3", highlightthickness=0)
+        self.canvas = tk.Canvas(self.image_frame, background=ttk.Style(self).lookup("Treeview", "background"), highlightthickness=0)
         hbar = ttk.Scrollbar(self.image_frame, orient="horizontal", command=self.canvas.xview)
         vbar = ttk.Scrollbar(self.image_frame, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(xscrollcommand=hbar.set, yscrollcommand=vbar.set)
@@ -151,7 +154,7 @@ class PreviewPane(ttk.Frame):
             return
         self.title_var.set(result.name)
         self.info_var.set("読み込み中…")
-        self._set_text("")
+        self._set_text("\n\n".join(f"{hit.location}  {hit.snippet}" for hit in result.evidence)[:MAX_PREVIEW_CHARS])
         options = self._extract_options(config)
         threading.Thread(
             target=self._load,

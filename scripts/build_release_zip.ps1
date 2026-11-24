@@ -9,7 +9,7 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipInstall,
     [switch]$Measure,
-    [string]$Version = "5.1.1",
+    [string]$Version = "5.2.0",
     [string]$OutputDirectory = "dist",
     [string]$Label = "win64"
 )
@@ -49,27 +49,6 @@ if (-not $SkipBuild) {
 $distDir = Join-Path $outputDir "FileScope"
 $exe = Join-Path $distDir "FileScope.exe"
 if (-not (Test-Path $exe)) { throw "build failed: $exe not found" }
-
-$qtVersion = & $python -c "from PySide6 import __version__; print(__version__)"
-if ($LASTEXITCODE -ne 0 -or $qtVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Could not determine Qt version" }
-$qtNotices = Join-Path $distDir "licenses\qt"
-New-Item -ItemType Directory -Force -Path $qtNotices | Out-Null
-foreach ($license in @("LGPL-3.0-only.txt", "GPL-3.0-only.txt")) {
-    Invoke-WebRequest "https://raw.githubusercontent.com/qt/qtbase/v$qtVersion/LICENSES/$license" -OutFile (Join-Path $qtNotices $license)
-}
-@"
-Qt and Qt for Python $qtVersion are distributed as separate, replaceable dynamic libraries.
-Copyright The Qt Company Ltd. and contributors. Distributed under LGPL-3.0.
-Upstream corresponding source (unmodified):
-https://download.qt.io/official_releases/qt/$($qtVersion.Substring(0, $qtVersion.LastIndexOf('.')))/$qtVersion/submodules/
-https://github.com/pyside/pyside-setup/tree/v$qtVersion
-Library notices:
-https://doc.qt.io/qt-6/licenses-used-in-qt.html
-https://doc.qt.io/qtforpython-6/licenses.html
-Users may replace compatible library binaries in _internal and may reverse engineer this
-application for debugging modifications to the LGPL libraries. These rights are not
-restricted by the FileScope application license.
-"@ | Set-Content -LiteralPath (Join-Path $qtNotices "NOTICE.txt") -Encoding utf8
 
 # Documentation and version metadata travel next to the exe as well, so the zip
 # stays understandable when it is unpacked somewhere else.
