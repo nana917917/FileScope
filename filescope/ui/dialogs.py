@@ -664,7 +664,7 @@ class AdvancedSettingsDialog(Dialog):
         row += 1
         ttk.Label(
             body,
-            text="容量上限に達しても古い索引は削除しません（新規作成のみ停止します）。",
+            text="容量上限後も既存索引は保持され、未登録の資料は直接検索します（時間が増える場合があります）。",
             style="Muted.TLabel",
         ).grid(row=row, column=1, sticky="w")
         row += 1

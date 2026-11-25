@@ -146,7 +146,37 @@ def display_match(label: str) -> str:
     return f"{words.replace('、', '・')}（{count}）"
 
 
-def values_for(row: Row, ocr_available: bool = True) -> tuple[str, ...]:
+def match_text(result: FileResult) -> str:
+    """Show confirmed positive terms, retaining threshold details when present."""
+    parsed = [match for label in result.displays if (match := _THRESHOLD_LABEL.fullmatch(label))]
+    thresholds = [display_match(match.group(0)) for match in parsed]
+    if thresholds:
+        threshold_terms = {term for match in parsed for term in match.group(1).split("、")}
+        remaining = [term for term in result.matched_terms if term not in threshold_terms]
+        return "・".join(remaining + thresholds)
+    return "・".join(result.matched_terms) or " / ".join(map(display_match, result.displays))
+
+
+def display_directory(path: str, roots: tuple[str, ...]) -> str:
+    """Show a lexical root-relative directory without touching the filesystem."""
+    directory = os.path.dirname(path)
+    matches = []
+    for index, root in enumerate(roots):
+        try:
+            if os.path.commonpath((normalized_key(root), normalized_key(directory))) == normalized_key(root):
+                matches.append((len(normalized_key(root)), index, root))
+        except ValueError:
+            continue
+    if not matches:
+        return directory
+    _, index, root = max(matches)
+    relative = os.path.relpath(directory, root)
+    name = os.path.basename(os.path.normpath(root)) or os.path.normpath(root)
+    prefix = f"[{index + 1}] {name}" if len(roots) > 1 else name
+    return prefix if relative == "." else os.path.join(prefix, relative)
+
+
+def values_for(row: Row, ocr_available: bool = True, roots: tuple[str, ...] = ()) -> tuple[str, ...]:
     result = row.result
     source = SOURCE_LABELS.get(result.source_type, "?")
     if result.cloud_state.value in ("online", "pinned"):
@@ -162,14 +192,14 @@ def values_for(row: Row, ocr_available: bool = True) -> tuple[str, ...]:
     return (
         "✓" if row.confirmed else "",
         result.name,
-        " / ".join(map(display_match, result.displays)),
+        match_text(result),
         f"{result.hit_count}+" if not result.hit_count_exact else str(result.hit_count),
         kind,
         format_time(result.mtime_ns),
         format_size(result.size),
         source,
         ocr,
-        result.path,
+        display_directory(result.path, roots) if roots else result.path,
     )
 
 

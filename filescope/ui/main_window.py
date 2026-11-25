@@ -87,6 +87,7 @@ class MainWindow(ttk.Frame):
         )
         self.model = results_module.ResultModel()
         self.session: SearchSession | None = None
+        self._result_roots: tuple[str, ...] = ()
         self.database: IndexDatabase | None = None
         self.ocr_cache = OcrCache()
         self._coverage_text = tk.StringVar(value="")
@@ -98,6 +99,7 @@ class MainWindow(ttk.Frame):
         self._kind_filter_vars: dict[str, tk.BooleanVar] = {}
         self._kind_filter_button: ttk.Menubutton | None = None
         self._issue_rows = 0
+        self._issue_counts: dict[str, int] = {}
         self._window_start = 0
         self._rendered_capacity = 0
         self._last_render_at = 0.0
@@ -518,7 +520,7 @@ class MainWindow(ttk.Frame):
         self.tree.bind("<Down>", lambda _event: self._move_selection(1))
         self.tree.bind("<Configure>", self._on_tree_configure)
 
-        self.issue_summary = tk.StringVar(value="問題・未検索 0件")
+        self.issue_summary = tk.StringVar(value="問題の記録 0件")
         ttk.Button(left, textvariable=self.issue_summary,
                    command=lambda: self._toggle_section(self.issues_frame)).pack(anchor="w", pady=(4, 0))
         issues_frame = ttk.LabelFrame(left, text="問題 / 未検索", padding=4)
@@ -675,6 +677,7 @@ class MainWindow(ttk.Frame):
         self.pause_button.configure(state="normal", text="一時停止")
 
         config = self.state.to_config(self.settings)
+        self._result_roots = tuple(roots)
         self.session = SearchSession(
             config,
             database=self.database,
@@ -793,18 +796,19 @@ class MainWindow(ttk.Frame):
         self._stop_progress()
         self._coverage_text.set(summary.coverage.line())
         elapsed = summary.elapsed
+        duration = f"{int(elapsed // 60)}分{int(elapsed % 60)}秒" if elapsed >= 60 else f"{elapsed:.1f}秒"
         if summary.truncated:
             status = (
                 f"検索終了（結果上限）｜{summary.coverage.scanned:,}件処理済み｜"
-                f"{len(summary.results):,}資料一致｜{elapsed:.1f}秒"
+                f"{len(summary.results):,}資料一致｜{duration}"
             )
         elif summary.coverage.cancelled:
-            status = f"検索中断｜{summary.coverage.scanned:,}件処理済み｜{len(summary.results):,}資料一致｜{elapsed:.1f}秒"
+            status = f"検索中断｜{summary.coverage.scanned:,}件処理済み｜{len(summary.results):,}資料一致｜{duration}"
         else:
             partial = bool(summary.coverage.errors or summary.coverage.skipped_online
                            or summary.coverage.skipped_size or summary.coverage.warnings)
             label = "検索終了（一部未確認あり）" if partial else "検索完了"
-            status = f"{label}｜{summary.coverage.discovered:,}件発見｜{len(summary.results):,}資料一致｜{elapsed:.1f}秒"
+            status = f"{label}｜{len(summary.results):,}資料一致｜{duration}"
         self._rebuild_facets()
         self._render_results()
         record_history(self.settings, self.state, len(summary.results), elapsed)
@@ -812,7 +816,7 @@ class MainWindow(ttk.Frame):
         self._status_text.set(status)
         if self.settings.autosave_results and summary.results:
             generation = self._search_generation
-            self._progress_text.set(summary.coverage.summary_line(f"{status}｜結果保存中"))
+            self._progress_text.set(f"{status}｜結果保存中")
             self._autosave_thread = threading.Thread(
                 target=self._autosave_worker,
                 args=(generation, summary),
@@ -821,7 +825,7 @@ class MainWindow(ttk.Frame):
             )
             self._autosave_thread.start()
         else:
-            self._progress_text.set(summary.coverage.summary_line(status))
+            self._progress_text.set(status)
         self._update_index_label()
 
     def _autosave_worker(self, generation: int, summary) -> None:
@@ -848,7 +852,7 @@ class MainWindow(ttk.Frame):
                 status += f" / 自動保存に失敗{f'（{error}）' if error else ''}"
             self._status_text.set(status)
             if self.session is not None and self.session.summary is not None:
-                self._progress_text.set(self.session.summary.coverage.summary_line(status))
+                self._progress_text.set(status)
 
     # ----------------------------------------------------------- progress
     def _start_progress(self) -> None:
@@ -888,7 +892,14 @@ class MainWindow(ttk.Frame):
 
     def _add_issue(self, issue) -> None:
         self._issue_rows += 1
-        self.issue_summary.set(f"問題・未検索 {self._issue_rows:,}件")
+        severity = issue.severity.value
+        self._issue_counts[severity] = self._issue_counts.get(severity, 0) + 1
+        counts = " / ".join(
+            f"{label} {self._issue_counts[key]:,}"
+            for key, label in (("skip", "スキップ"), ("warn", "警告"), ("error", "エラー"))
+            if self._issue_counts.get(key)
+        )
+        self.issue_summary.set(f"問題の記録 {self._issue_rows:,}件（{counts}）")
         if self._issue_rows > MAX_ISSUE_ROWS:
             return
         self.issue_tree.insert(
@@ -902,7 +913,8 @@ class MainWindow(ttk.Frame):
         for item in self.issue_tree.get_children():
             self.issue_tree.delete(item)
         self._issue_rows = 0
-        self.issue_summary.set("問題・未検索 0件")
+        self._issue_counts.clear()
+        self.issue_summary.set("問題の記録 0件")
         self.issues_frame.pack_forget()
 
     # ------------------------------------------------------------- results
@@ -963,7 +975,7 @@ class MainWindow(ttk.Frame):
                 "end",
                 iid=str(index),
                 image=self.document_icons.get(display_kind(row.result), self.document_icons["?"]),
-                values=results_module.values_for(row, self.ocr_status.ready),
+                values=results_module.values_for(row, self.ocr_status.ready, self._result_roots),
                 tags=results_module.row_tags(row, index),
             )
             if anchor and row.result.path == anchor:
@@ -1060,7 +1072,7 @@ class MainWindow(ttk.Frame):
             return
         self.tree.item(
             str(index),
-            values=results_module.values_for(row, self.ocr_status.ready),
+            values=results_module.values_for(row, self.ocr_status.ready, self._result_roots),
             tags=results_module.row_tags(row, index),
         )
 
@@ -1741,8 +1753,8 @@ def write_results_csv(path: str, rows) -> bool:
                     [
                         "✓" if row.confirmed else "",
                         result.name,
-                        " / ".join(result.displays),
-                        result.hit_count,
+                        results_module.match_text(result),
+                        f"{result.hit_count}+" if not result.hit_count_exact else result.hit_count,
                         result.file_kind.value,
                         results_module.format_time(result.mtime_ns),
                         results_module.format_size(result.size),
